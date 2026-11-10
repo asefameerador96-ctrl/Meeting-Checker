@@ -173,7 +173,10 @@
   /**
    * Full uploader widget: existing thumbs + "Add photos" tile, uploads each selected file
    * sequentially with its own progress bar.
-   *   new Uploader(container, {fields:{kind,date,sr_id}, images:[...], editable, max, onChange(images)})
+   *   new Uploader(container, {fields:{kind,date,sr_id}, images:[...], editable, max, onChange(images),
+   *                            onBusyChange(busy), emptyText})
+   *   onBusyChange fires when uploads start (true) and when the whole batch has finished (false).
+   *   emptyText is shown when the widget is read-only and has no images.
    */
   window.Uploader = class {
     constructor(el, o) {
@@ -181,8 +184,12 @@
       this.pending = 0; this.render();
     }
     get busy() { return this.pending > 0; }
+    _busyChanged() { const b = this.busy; if (b !== this._lastBusy) { this._lastBusy = b; this.o.onBusyChange && this.o.onBusyChange(b); } }
     render() {
       const el = this.el; el.classList.add('thumbs'); el.innerHTML = '';
+      if (!this.o.editable && !this.images.length && this.o.emptyText) {
+        el.innerHTML = `<span class="muted small">${esc(this.o.emptyText)}</span>`; return;
+      }
       const strip = document.createElement('div'); strip.className = 'thumbs';
       renderThumbs(strip, this.images, { canDelete: this.o.editable, onDelete: (img) => this.remove(img) });
       Array.from(strip.children).forEach(c => el.appendChild(c));
@@ -204,6 +211,7 @@
         this.queueEl.appendChild(t); this.pending++;
         return { f, t, url };
       });
+      this._busyChanged();
       for (const j of jobs) {  // sequential: clearer progress + kinder to mobile networks
         const bar = j.t.querySelector('.prog > i'), pct = j.t.querySelector('.pct');
         try {
@@ -224,6 +232,7 @@
       const failed = Array.from(this.queueEl.querySelectorAll('.thumb.failed'));
       this.render(); failed.forEach(f => this.queueEl.appendChild(f));
       this.o.onChange && this.o.onChange(this.images);
+      this._busyChanged();
     }
     async remove(img) {
       if (!confirm('Remove this photo?')) return;

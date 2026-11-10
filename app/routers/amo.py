@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from ..auth import audit, require_role
 from ..db import get_db
 from ..models import SREntry, Territory, User, Zone
-from ..services import (amo_can_edit, assert_amo_can_edit, editable_dates, ensure_editable_date, get_sr_entry,
+from ..services import (amo_can_edit, assert_amo_can_edit, editable_dates, ensure_editable_date, ensure_viewable_date, get_sr_entry,
                         get_territory_report, get_zone_report, image_json, images_for, parse_date, zone_report_json,
                         zone_srs, sr_entry_json)
 
@@ -42,6 +42,7 @@ def _clean(s: str | None, limit: int) -> str:
 def get_report(date: str | None = Query(None), user: User = Depends(require_role("amo")),
                db: Session = Depends(get_db)):
     d = parse_date(date)
+    ensure_viewable_date(d)  # SPEC E: only the retention window is viewable, never the future
     z, t = _zone(db, user)
     zr = get_zone_report(db, d, z.code)
     tr = get_territory_report(db, d, t.code)

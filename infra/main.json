@@ -1,0 +1,544 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.49.2.45890",
+      "templateHash": "3022245228418091592"
+    }
+  },
+  "parameters": {
+    "appName": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 40,
+      "metadata": {
+        "description": "Base name of the web app. Must be globally unique (becomes <appName>.azurewebsites.net)."
+      }
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Region for all resources."
+      }
+    },
+    "postgresLocation": {
+      "type": "string",
+      "defaultValue": "[parameters('location')]",
+      "metadata": {
+        "description": "Region for the PostgreSQL server (some subscriptions cannot create PostgreSQL in every region)."
+      }
+    },
+    "sku": {
+      "type": "string",
+      "defaultValue": "P1v3",
+      "allowedValues": [
+        "B1",
+        "B2",
+        "B3",
+        "S1",
+        "S2",
+        "S3",
+        "P0v3",
+        "P1v3",
+        "P2v3",
+        "P3v3"
+      ],
+      "metadata": {
+        "description": "App Service plan SKU. P1v3 supports autoscale and handles ~1,350 concurrent uploaders; B2/S1 are cheaper for trials."
+      }
+    },
+    "minInstances": {
+      "type": "int",
+      "defaultValue": 2,
+      "minValue": 1,
+      "maxValue": 30,
+      "metadata": {
+        "description": "Minimum (and initial) number of web instances."
+      }
+    },
+    "maxInstances": {
+      "type": "int",
+      "defaultValue": 8,
+      "minValue": 1,
+      "maxValue": 30,
+      "metadata": {
+        "description": "Maximum number of web instances the autoscale rule may add (Standard/Premium SKUs only)."
+      }
+    },
+    "webConcurrency": {
+      "type": "int",
+      "defaultValue": 3,
+      "minValue": 1,
+      "maxValue": 16,
+      "metadata": {
+        "description": "Gunicorn worker processes per instance."
+      }
+    },
+    "dbPoolSize": {
+      "type": "int",
+      "defaultValue": 5,
+      "metadata": {
+        "description": "SQLAlchemy connection pool size per worker process (pool + overflow). Keep maxInstances x webConcurrency x (pool + overflow) below the PostgreSQL max_connections."
+      }
+    },
+    "dbMaxOverflow": {
+      "type": "int",
+      "defaultValue": 5
+    },
+    "retentionDays": {
+      "type": "int",
+      "defaultValue": 3,
+      "minValue": 1,
+      "metadata": {
+        "description": "Days of photos/reports that stay viewable; older photos are deleted."
+      }
+    },
+    "postgresSkuName": {
+      "type": "string",
+      "defaultValue": "Standard_D2ds_v5",
+      "metadata": {
+        "description": "PostgreSQL compute SKU. Standard_D2ds_v5 (General Purpose, ~859 connections) for production; Standard_B1ms (Burstable, ~50 connections) only for small trials with 1 instance."
+      }
+    },
+    "postgresTier": {
+      "type": "string",
+      "defaultValue": "GeneralPurpose",
+      "allowedValues": [
+        "Burstable",
+        "GeneralPurpose",
+        "MemoryOptimized"
+      ],
+      "metadata": {
+        "description": "PostgreSQL tier matching postgresSkuName."
+      }
+    },
+    "postgresStorageGB": {
+      "type": "int",
+      "defaultValue": 32,
+      "metadata": {
+        "description": "PostgreSQL storage size in GB (photos live in Blob Storage, not in the database)."
+      }
+    },
+    "postgresAdminLogin": {
+      "type": "string",
+      "defaultValue": "preplanadmin",
+      "metadata": {
+        "description": "PostgreSQL administrator login name."
+      }
+    },
+    "postgresAdminPassword": {
+      "type": "securestring",
+      "minLength": 12,
+      "metadata": {
+        "description": "PostgreSQL administrator password."
+      }
+    },
+    "secretKey": {
+      "type": "securestring",
+      "minLength": 32,
+      "metadata": {
+        "description": "Secret used to sign session cookies (long random string)."
+      }
+    },
+    "storageContainerName": {
+      "type": "string",
+      "defaultValue": "meeting-images",
+      "metadata": {
+        "description": "Blob container for the meeting photos."
+      }
+    },
+    "databaseName": {
+      "type": "string",
+      "defaultValue": "preplan",
+      "metadata": {
+        "description": "Database name."
+      }
+    },
+    "tags": {
+      "type": "object",
+      "defaultValue": {
+        "app": "preplan-portal"
+      }
+    }
+  },
+  "variables": {
+    "suffix": "[uniqueString(resourceGroup().id, parameters('appName'))]",
+    "planName": "[format('{0}-plan', parameters('appName'))]",
+    "storageName": "[take(format('st{0}{1}', replace(toLower(parameters('appName')), '-', ''), variables('suffix')), 24)]",
+    "postgresName": "[take(format('{0}-pg-{1}', toLower(parameters('appName')), variables('suffix')), 63)]",
+    "autoscaleSupported": "[or(startsWith(parameters('sku'), 'S'), startsWith(parameters('sku'), 'P'))]",
+    "initialInstances": "[if(variables('autoscaleSupported'), parameters('minInstances'), min(parameters('minInstances'), 3))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Storage/storageAccounts",
+      "apiVersion": "2023-05-01",
+      "name": "[variables('storageName')]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "kind": "StorageV2",
+      "sku": {
+        "name": "Standard_LRS"
+      },
+      "properties": {
+        "accessTier": "Hot",
+        "allowBlobPublicAccess": false,
+        "minimumTlsVersion": "TLS1_2",
+        "supportsHttpsTrafficOnly": true,
+        "allowSharedKeyAccess": true
+      }
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/blobServices",
+      "apiVersion": "2023-05-01",
+      "name": "[format('{0}/{1}', variables('storageName'), 'default')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/blobServices/containers",
+      "apiVersion": "2023-05-01",
+      "name": "[format('{0}/{1}/{2}', variables('storageName'), 'default', parameters('storageContainerName'))]",
+      "properties": {
+        "publicAccess": "None"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts/blobServices', variables('storageName'), 'default')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/managementPolicies",
+      "apiVersion": "2023-05-01",
+      "name": "[format('{0}/{1}', variables('storageName'), 'default')]",
+      "properties": {
+        "policy": {
+          "rules": [
+            {
+              "name": "delete-old-meeting-photos",
+              "enabled": true,
+              "type": "Lifecycle",
+              "definition": {
+                "filters": {
+                  "blobTypes": [
+                    "blockBlob"
+                  ],
+                  "prefixMatch": [
+                    "[format('{0}/', parameters('storageContainerName'))]"
+                  ]
+                },
+                "actions": {
+                  "baseBlob": {
+                    "delete": {
+                      "daysAfterCreationGreaterThan": "[add(parameters('retentionDays'), 1)]"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts/blobServices/containers', variables('storageName'), 'default', parameters('storageContainerName'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.DBforPostgreSQL/flexibleServers",
+      "apiVersion": "2024-08-01",
+      "name": "[variables('postgresName')]",
+      "location": "[parameters('postgresLocation')]",
+      "tags": "[parameters('tags')]",
+      "sku": {
+        "name": "[parameters('postgresSkuName')]",
+        "tier": "[parameters('postgresTier')]"
+      },
+      "properties": {
+        "version": "16",
+        "administratorLogin": "[parameters('postgresAdminLogin')]",
+        "administratorLoginPassword": "[parameters('postgresAdminPassword')]",
+        "storage": {
+          "storageSizeGB": "[parameters('postgresStorageGB')]",
+          "autoGrow": "Enabled"
+        },
+        "backup": {
+          "backupRetentionDays": 7,
+          "geoRedundantBackup": "Disabled"
+        },
+        "highAvailability": {
+          "mode": "Disabled"
+        },
+        "network": {
+          "publicNetworkAccess": "Enabled"
+        },
+        "authConfig": {
+          "activeDirectoryAuth": "Disabled",
+          "passwordAuth": "Enabled"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.DBforPostgreSQL/flexibleServers/firewallRules",
+      "apiVersion": "2024-08-01",
+      "name": "[format('{0}/{1}', variables('postgresName'), 'AllowAzureServices')]",
+      "properties": {
+        "startIpAddress": "0.0.0.0",
+        "endIpAddress": "0.0.0.0"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('postgresName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.DBforPostgreSQL/flexibleServers/databases",
+      "apiVersion": "2024-08-01",
+      "name": "[format('{0}/{1}', variables('postgresName'), parameters('databaseName'))]",
+      "properties": {
+        "charset": "UTF8",
+        "collation": "en_US.utf8"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('postgresName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Web/serverfarms",
+      "apiVersion": "2024-04-01",
+      "name": "[variables('planName')]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "kind": "linux",
+      "sku": {
+        "name": "[parameters('sku')]",
+        "capacity": "[variables('initialInstances')]"
+      },
+      "properties": {
+        "reserved": true
+      }
+    },
+    {
+      "type": "Microsoft.Web/sites",
+      "apiVersion": "2024-04-01",
+      "name": "[parameters('appName')]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "kind": "app,linux",
+      "properties": {
+        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('planName'))]",
+        "httpsOnly": true,
+        "clientAffinityEnabled": false,
+        "siteConfig": {
+          "linuxFxVersion": "PYTHON|3.12",
+          "appCommandLine": "bash startup.sh",
+          "alwaysOn": true,
+          "ftpsState": "Disabled",
+          "minTlsVersion": "1.2",
+          "http20Enabled": true,
+          "healthCheckPath": "/healthz",
+          "appSettings": [
+            {
+              "name": "SCM_DO_BUILD_DURING_DEPLOYMENT",
+              "value": "true"
+            },
+            {
+              "name": "WEBSITES_CONTAINER_START_TIME_LIMIT",
+              "value": "900"
+            },
+            {
+              "name": "DATABASE_URL",
+              "value": "[format('postgresql+psycopg://{0}:{1}@{2}:5432/{3}?sslmode=require', parameters('postgresAdminLogin'), uriComponent(parameters('postgresAdminPassword')), reference(resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('postgresName')), '2024-08-01').fullyQualifiedDomainName, parameters('databaseName'))]"
+            },
+            {
+              "name": "SECRET_KEY",
+              "value": "[parameters('secretKey')]"
+            },
+            {
+              "name": "STORAGE_BACKEND",
+              "value": "azure"
+            },
+            {
+              "name": "AZURE_STORAGE_CONNECTION_STRING",
+              "value": "[format('DefaultEndpointsProtocol=https;AccountName={0};AccountKey={1};EndpointSuffix={2}', variables('storageName'), listKeys(resourceId('Microsoft.Storage/storageAccounts', variables('storageName')), '2023-05-01').keys[0].value, environment().suffixes.storage)]"
+            },
+            {
+              "name": "AZURE_STORAGE_CONTAINER",
+              "value": "[parameters('storageContainerName')]"
+            },
+            {
+              "name": "COOKIE_SECURE",
+              "value": "true"
+            },
+            {
+              "name": "APP_TIMEZONE",
+              "value": "Asia/Dhaka"
+            },
+            {
+              "name": "RETENTION_DAYS",
+              "value": "[string(parameters('retentionDays'))]"
+            },
+            {
+              "name": "WEB_CONCURRENCY",
+              "value": "[string(parameters('webConcurrency'))]"
+            },
+            {
+              "name": "DB_POOL_SIZE",
+              "value": "[string(parameters('dbPoolSize'))]"
+            },
+            {
+              "name": "DB_MAX_OVERFLOW",
+              "value": "[string(parameters('dbMaxOverflow'))]"
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts/blobServices/containers', variables('storageName'), 'default', parameters('storageContainerName'))]",
+        "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers/databases', variables('postgresName'), parameters('databaseName'))]",
+        "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers/firewallRules', variables('postgresName'), 'AllowAzureServices')]",
+        "[resourceId('Microsoft.Web/serverfarms', variables('planName'))]",
+        "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('postgresName'))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', variables('storageName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Web/sites/basicPublishingCredentialsPolicies",
+      "apiVersion": "2024-04-01",
+      "name": "[format('{0}/{1}', parameters('appName'), 'ftp')]",
+      "properties": {
+        "allow": false
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', parameters('appName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Web/sites/config",
+      "apiVersion": "2024-04-01",
+      "name": "[format('{0}/{1}', parameters('appName'), 'logs')]",
+      "properties": {
+        "applicationLogs": {
+          "fileSystem": {
+            "level": "Information"
+          }
+        },
+        "httpLogs": {
+          "fileSystem": {
+            "enabled": true,
+            "retentionInDays": 7,
+            "retentionInMb": 100
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', parameters('appName'))]"
+      ]
+    },
+    {
+      "condition": "[and(variables('autoscaleSupported'), greater(parameters('maxInstances'), parameters('minInstances')))]",
+      "type": "Microsoft.Insights/autoscalesettings",
+      "apiVersion": "2022-10-01",
+      "name": "[format('{0}-autoscale', variables('planName'))]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "properties": {
+        "enabled": true,
+        "targetResourceUri": "[resourceId('Microsoft.Web/serverfarms', variables('planName'))]",
+        "profiles": [
+          {
+            "name": "default",
+            "capacity": {
+              "minimum": "[string(parameters('minInstances'))]",
+              "maximum": "[string(parameters('maxInstances'))]",
+              "default": "[string(parameters('minInstances'))]"
+            },
+            "rules": [
+              {
+                "metricTrigger": {
+                  "metricName": "CpuPercentage",
+                  "metricResourceUri": "[resourceId('Microsoft.Web/serverfarms', variables('planName'))]",
+                  "timeGrain": "PT1M",
+                  "statistic": "Average",
+                  "timeWindow": "PT5M",
+                  "timeAggregation": "Average",
+                  "operator": "GreaterThan",
+                  "threshold": 65
+                },
+                "scaleAction": {
+                  "direction": "Increase",
+                  "type": "ChangeCount",
+                  "value": "2",
+                  "cooldown": "PT5M"
+                }
+              },
+              {
+                "metricTrigger": {
+                  "metricName": "HttpQueueLength",
+                  "metricResourceUri": "[resourceId('Microsoft.Web/serverfarms', variables('planName'))]",
+                  "timeGrain": "PT1M",
+                  "statistic": "Average",
+                  "timeWindow": "PT5M",
+                  "timeAggregation": "Average",
+                  "operator": "GreaterThan",
+                  "threshold": 50
+                },
+                "scaleAction": {
+                  "direction": "Increase",
+                  "type": "ChangeCount",
+                  "value": "1",
+                  "cooldown": "PT5M"
+                }
+              },
+              {
+                "metricTrigger": {
+                  "metricName": "CpuPercentage",
+                  "metricResourceUri": "[resourceId('Microsoft.Web/serverfarms', variables('planName'))]",
+                  "timeGrain": "PT1M",
+                  "statistic": "Average",
+                  "timeWindow": "PT15M",
+                  "timeAggregation": "Average",
+                  "operator": "LessThan",
+                  "threshold": 25
+                },
+                "scaleAction": {
+                  "direction": "Decrease",
+                  "type": "ChangeCount",
+                  "value": "1",
+                  "cooldown": "PT15M"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/serverfarms', variables('planName'))]"
+      ]
+    }
+  ],
+  "outputs": {
+    "webAppName": {
+      "type": "string",
+      "value": "[parameters('appName')]"
+    },
+    "webAppUrl": {
+      "type": "string",
+      "value": "[format('https://{0}', reference(resourceId('Microsoft.Web/sites', parameters('appName')), '2024-04-01').defaultHostName)]"
+    },
+    "postgresServerName": {
+      "type": "string",
+      "value": "[variables('postgresName')]"
+    },
+    "postgresHost": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('postgresName')), '2024-08-01').fullyQualifiedDomainName]"
+    },
+    "storageAccountName": {
+      "type": "string",
+      "value": "[variables('storageName')]"
+    }
+  }
+}

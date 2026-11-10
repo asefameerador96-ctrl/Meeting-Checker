@@ -63,36 +63,53 @@ def ensure_viewable_date(d: date):
 
 
 # ---- get-or-create helpers ----
+# Several requests of the same user routinely run in parallel (meeting + SR uploaders + debounced autosave), so
+# a plain "select, then insert" races on the unique constraints. We insert with ON CONFLICT DO NOTHING (supported
+# by both SQLite and PostgreSQL) and then re-select, which is safe whichever request wins.
+def _insert_ignore(db: Session, model, values: dict):
+    dialect = db.get_bind().dialect.name
+    if dialect == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert as _ins
+    elif dialect == "sqlite":
+        from sqlalchemy.dialects.sqlite import insert as _ins
+    else:  # pragma: no cover - other databases: best effort
+        obj = model(**values)
+        db.add(obj)
+        db.flush()
+        return
+    db.execute(_ins(model).values(**values).on_conflict_do_nothing())
+
+
 def get_zone_report(db: Session, d: date, zone_code: int, create=False) -> ZoneReport | None:
-    zr = db.scalar(select(ZoneReport).where(ZoneReport.report_date == d, ZoneReport.zone_code == zone_code))
+    q = select(ZoneReport).where(ZoneReport.report_date == d, ZoneReport.zone_code == zone_code)
+    zr = db.scalar(q)
     if zr is None and create:
         z = db.get(Zone, zone_code)
-        zr = ZoneReport(report_date=d, zone_code=zone_code, territory_code=z.territory_code)
-        db.add(zr)
-        db.flush()
+        _insert_ignore(db, ZoneReport, {"report_date": d, "zone_code": zone_code, "territory_code": z.territory_code})
+        zr = db.scalar(q)
     return zr
 
 
 def get_territory_report(db: Session, d: date, territory_code: int, create=False) -> TerritoryReport | None:
-    tr = db.scalar(select(TerritoryReport).where(TerritoryReport.report_date == d,
-                                                 TerritoryReport.territory_code == territory_code))
+    q = select(TerritoryReport).where(TerritoryReport.report_date == d,
+                                      TerritoryReport.territory_code == territory_code)
+    tr = db.scalar(q)
     if tr is None and create:
-        tr = TerritoryReport(report_date=d, territory_code=territory_code)
-        db.add(tr)
-        db.flush()
+        _insert_ignore(db, TerritoryReport, {"report_date": d, "territory_code": territory_code})
+        tr = db.scalar(q)
     return tr
 
 
 def get_sr_entry(db: Session, d: date, zone_code: int, sr_id: str, create=False) -> SREntry | None:
-    e = db.scalar(select(SREntry).where(SREntry.report_date == d, SREntry.zone_code == zone_code,
-                                        SREntry.sr_id == sr_id))
+    q = select(SREntry).where(SREntry.report_date == d, SREntry.zone_code == zone_code, SREntry.sr_id == sr_id)
+    e = db.scalar(q)
     if e is None and create:
         a = db.scalar(select(Assignment).where(Assignment.zone_code == zone_code, Assignment.sr_id == sr_id))
         if not a:
             raise HTTPException(404, "SR is not assigned to this zone")
-        e = SREntry(report_date=d, zone_code=zone_code, sr_id=sr_id, territory_code=a.territory_code)
-        db.add(e)
-        db.flush()
+        _insert_ignore(db, SREntry, {"report_date": d, "zone_code": zone_code, "sr_id": sr_id,
+                                     "territory_code": a.territory_code})
+        e = db.scalar(q)
     return e
 
 

@@ -2,8 +2,9 @@
 import csv
 import json
 import logging
+from contextlib import contextmanager
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
 from .config import BASE_DIR
 from .db import Base, SessionLocal, engine
@@ -13,8 +14,29 @@ log = logging.getLogger("seed")
 SEED = BASE_DIR / "seed"
 
 
+_SEED_LOCK_ID = 724501
+
+
+@contextmanager
+def _seed_lock():
+    """On PostgreSQL, serialise schema creation + seeding across app instances starting at the same moment
+    (otherwise they race and fail with duplicate-key errors). No-op on SQLite."""
+    if engine.dialect.name != "postgresql":
+        yield
+        return
+    with engine.connect() as conn:
+        conn.execute(text("SELECT pg_advisory_lock(:k)"), {"k": _SEED_LOCK_ID})
+        conn.commit()
+        try:
+            yield
+        finally:
+            conn.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": _SEED_LOCK_ID})
+            conn.commit()
+
+
 def init_db():
-    Base.metadata.create_all(engine)
+    with _seed_lock():
+        Base.metadata.create_all(engine)
 
 
 def seed_hierarchy(db):
@@ -66,12 +88,13 @@ def seed_users(db):
 
 
 def run_seed():
-    init_db()
-    with SessionLocal() as db:
-        seed_hierarchy(db)
-        db.flush()
-        seed_users(db)
-        db.commit()
+    with _seed_lock():
+        Base.metadata.create_all(engine)
+        with SessionLocal() as db:
+            seed_hierarchy(db)
+            db.flush()
+            seed_users(db)
+            db.commit()
 
 
 if __name__ == "__main__":

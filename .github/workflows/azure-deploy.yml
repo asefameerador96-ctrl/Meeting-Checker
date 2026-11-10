@@ -1,0 +1,68 @@
+# Deploys the application code to the existing Azure Web App (infrastructure is created once with deploy/deploy.sh).
+# Setup (repo Settings > Secrets and variables > Actions):
+#   secret   AZURE_CREDENTIALS   output of: az ad sp create-for-rbac --name preplan-deploy --role contributor \
+#                                  --scopes /subscriptions/<sub-id>/resourceGroups/<rg> --sdk-auth
+#   variable AZURE_WEBAPP_NAME   the web app name (APP_NAME in deploy/.deploy-output.env)
+name: Deploy to Azure Web App
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: azure-webapp-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Smoke test (imports + seed against SQLite)
+        env:
+          DATABASE_URL: sqlite:////tmp/ci.db
+          LOCAL_UPLOAD_DIR: /tmp/ci-uploads
+        run: |
+          pip install -r requirements.txt
+          python -m app.seed
+          python -c "from app.main import app; print('app import ok:', app.title)"
+
+      - name: Package (app code only; Azure installs requirements.txt during deployment)
+        run: |
+          git archive --format=zip -o preplan-app.zip HEAD -- . \
+            ':(exclude)tests' ':(exclude)data' ':(exclude)deploy' ':(exclude)infra' ':(exclude).github' \
+            ':(exclude).claude' ':(exclude)docs' ':(exclude)scripts' ':(exclude)requirements-dev.txt'
+          python3 deploy/check_package.py preplan-app.zip
+
+      - uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ vars.AZURE_WEBAPP_NAME }}
+          package: preplan-app.zip
+
+      - name: Health check
+        run: |
+          url="https://$(az webapp show --name '${{ vars.AZURE_WEBAPP_NAME }}' \
+                 --resource-group "$(az webapp list --query "[?name=='${{ vars.AZURE_WEBAPP_NAME }}'].resourceGroup | [0]" -o tsv)" \
+                 --query defaultHostName -o tsv)"
+          for i in $(seq 1 40); do
+            if curl -fsS --max-time 20 "$url/healthz"; then echo; echo "Healthy: $url"; exit 0; fi
+            sleep 15
+          done
+          echo "App did not become healthy: $url" >&2
+          exit 1

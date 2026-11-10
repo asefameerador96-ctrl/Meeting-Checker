@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from ..auth import audit, require_role
 from ..db import get_db
 from ..models import SR, Assignment, Image, SREntry, Territory, User, Zone, ZoneReport
-from ..services import (assert_tso_can_edit, editable_dates, get_sr_entry, get_territory_report, get_zone_report,
+from ..services import (assert_tso_can_edit, editable_dates, ensure_viewable_date, get_sr_entry, get_territory_report, get_zone_report,
                         image_json, parse_date, sr_entry_json, zone_report_json)
 
 router = APIRouter(prefix="/api/tso", tags=["tso"])
@@ -184,7 +184,9 @@ def _build_report(db: Session, d: date, tc: int) -> dict:
 # ---------------- endpoints ----------------
 @router.get("/report")
 def get_report(date: str | None = None, user: User = Depends(require_role("tso")), db: Session = Depends(get_db)):
-    return _build_report(db, parse_date(date), _territory_code(user))
+    d = parse_date(date)
+    ensure_viewable_date(d)  # SPEC E: only the retention window is viewable, never the future
+    return _build_report(db, d, _territory_code(user))
 
 
 @router.put("/sr")

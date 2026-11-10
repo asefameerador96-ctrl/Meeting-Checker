@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Admin · Pre-Plan Follow-Up Portal{% endblock %}
+{% block head %}
+<style>
+  .adm-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+  .adm-head p { margin: 0; }
+  .adm-links { display: flex; gap: 8px; flex-wrap: wrap; }
+  .role-stats { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin-bottom: 14px; }
+  .role-stats .stat { padding: 12px 14px; cursor: pointer; text-align: left; font: inherit; color: inherit; }
+  .role-stats .stat:hover { border-color: var(--primary); }
+  .role-stats .stat.sel { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-soft); }
+  .role-stats .stat .value { font-size: 1.4rem; }
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 12px; }
+  .toolbar .f-q { flex: 1 1 240px; }
+  .toolbar .f-sel { flex: 0 1 160px; }
+  .result-meta { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .pager { display: flex; gap: 6px; align-items: center; }
+  .u-name { font-weight: 600; }
+  .u-sub { font-size: .8rem; color: var(--muted); }
+  .u-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  tr.inactive td { background: #fbfbfc; color: var(--muted); }
+  .pw-box { display: flex; gap: 8px; align-items: center; }
+  .pw-box code { flex: 1; font-size: 1.3rem; letter-spacing: .06em; padding: 10px 12px; border-radius: 8px; background: var(--surface-2);
+    border: 1px solid var(--border); text-align: center; user-select: all; }
+  /* phone: rows become stacked cards */
+  @media (max-width: 720px) {
+    #userTbl thead { display: none; }
+    #userTbl, #userTbl tbody, #userTbl tr, #userTbl td { display: block; width: 100%; }
+    #userTbl tr { border-bottom: 1px solid var(--border); padding: 10px 12px; }
+    #userTbl td { border: 0; padding: 2px 0; }
+    #userTbl td[data-k="Last login"]::before { content: "Last login: "; color: var(--muted); font-size: .78rem; font-weight: 600; }
+    #userTbl td[data-k="Role"], #userTbl td[data-k="Status"] { display: inline-block; width: auto; margin: 4px 6px 2px 0; }
+    #userTbl td.u-act-cell { padding-top: 8px; }
+    .u-actions { justify-content: flex-start; }
+    .table-wrap { overflow-x: visible; }
+  }
+</style>
+{% endblock %}
+{% block content %}
+<section class="card">
+  <div class="adm-head">
+    <div>
+      <h1>User administration</h1>
+      <p class="muted small">Search accounts, reset passwords and activate or deactivate users.</p>
+    </div>
+    <div class="adm-links">
+      <a class="btn btn-ghost btn-sm" id="csvLink" href="/api/admin/users.csv" download>Export all usernames (no passwords)</a>
+      <a class="btn btn-primary btn-sm" href="/checker">Open checker portal</a>
+    </div>
+  </div>
+</section>
+
+<div class="grid role-stats" id="roleStats" aria-label="Users by role"></div>
+
+<section class="card">
+  <form class="toolbar" id="filters" autocomplete="off" onsubmit="return false">
+    <label class="f-q">Search
+      <input type="search" id="fQ" placeholder="Username, name, zone, territory, division…" maxlength="80">
+    </label>
+    <label class="f-sel">Role
+      <select id="fRole">
+        <option value="">All roles</option>
+        <option value="amo">AMO</option>
+        <option value="tso">TSO</option>
+        <option value="checker">Checker</option>
+        <option value="admin">Admin</option>
+      </select>
+    </label>
+    <label class="f-sel">Status
+      <select id="fActive">
+        <option value="">Any status</option>
+        <option value="true">Active</option>
+        <option value="false">Inactive</option>
+      </select>
+    </label>
+  </form>
+  <div class="result-meta">
+    <span class="muted small" id="resultInfo">Loading…</span>
+    <div class="pager">
+      <button class="btn btn-ghost btn-sm" type="button" id="prevPage">‹ Prev</button>
+      <span class="small muted" id="pageInfo"></span>
+      <button class="btn btn-ghost btn-sm" type="button" id="nextPage">Next ›</button>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table class="tbl" id="userTbl">
+      <thead><tr><th>User</th><th>Role</th><th>Territory / Zone</th><th>Last login</th><th>Status</th><th class="num">Actions</th></tr></thead>
+      <tbody id="userRows"><tr><td colspan="6" class="skeleton">Loading…</td></tr></tbody>
+    </table>
+  </div>
+</section>
+
+<dialog id="pwResult" class="modal">
+  <div class="body">
+    <h3>New password for <span id="pwUser"></span></h3>
+    <p class="small muted" style="margin:0">Share it with the user securely. It is shown only once; the user has been signed out and should change it after logging in.</p>
+    <div class="pw-box"><code id="pwValue"></code><button class="btn btn-sm" type="button" id="pwCopy">Copy</button></div>
+    <div class="row-end"><button class="btn btn-primary" type="button" id="pwDone">Done</button></div>
+  </div>
+</dialog>
+{% endblock %}
+{% block scripts %}<script src="/static/js/admin.js?v={{ v }}"></script>{% endblock %}

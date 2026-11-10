@@ -43,6 +43,7 @@
   .sr .act { display: flex; flex-direction: column; gap: 6px; }
   .sr .act .btn { width: 100%; }
   .sr .act .undo { font-size: .8rem; }
+  .sr .act .btn-ok:disabled { opacity: 1; cursor: default; }
   .saved { font-size: .75rem; color: var(--ok); min-height: 1em; }
   .no-photo { font-size: .85rem; color: var(--bad); font-weight: 600; }
   .empty-zone { padding: 14px; text-align: center; color: var(--muted); background: var(--surface-2); border-radius: 8px; margin-top: 12px; }
@@ -107,7 +108,7 @@
         <div class="saved" id="remarksSaved"></div>
       </div>
     </div>
-    <h3 style="margin-top:14px">Before you submit</h3>
+    <h3 style="margin-top:14px" id="checklistTitle">Before you submit</h3>
     <ul class="checklist" id="checklist"></ul>
     <div class="row-end"><button class="btn btn-primary hidden" type="button" id="btnSubmit">Submit territory to check-back team</button></div>
   </section>

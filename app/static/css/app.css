@@ -121,5 +121,14 @@ dialog.lightbox[open] { display: grid; place-items: center; }
   .card { padding: 12px; }
   .who-name { display: none; }
   .tbl { font-size: .82rem; }
+  /* keep the sticky header on one row on phones */
+  .topbar { flex-wrap: nowrap; padding: 8px 12px; gap: 8px; }
+  .brand { gap: 6px; min-width: 0; font-size: .9rem; }
+  .brand > span:nth-child(2) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .logo { width: 24px; height: 24px; flex: none; }
+  .role-chip { flex: none; padding: 2px 6px; }
+  .who { flex: none; gap: 4px; }
+  .topbar .btn-sm { padding: 4px 8px; font-size: .8rem; }
 }
+@media (max-width: 360px) { .brand > span:nth-child(2) { display: none; } }
 @media print { .topbar, .sticky-actions, .btn { display: none !important; } }

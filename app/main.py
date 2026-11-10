@@ -1,4 +1,6 @@
+import hashlib
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -15,9 +17,33 @@ from .seed import init_db
 logging.basicConfig(level=logging.INFO)
 APP_DIR = BASE_DIR / "app"
 templates = Jinja2Templates(directory=str(APP_DIR / "templates"))
-STATIC_VERSION = "1"
 
-app = FastAPI(title="Pre-Plan Follow-Up Portal", docs_url=None, redoc_url=None, openapi_url=None)
+
+def _static_version() -> str:
+    """Cache-busting token for /static URLs: changes whenever any static file changes."""
+    h = hashlib.sha1()
+    for p in sorted((APP_DIR / "static").rglob("*")):
+        if p.is_file():
+            h.update(p.relative_to(APP_DIR).as_posix().encode())
+            h.update(p.read_bytes())
+    return h.hexdigest()[:10]
+
+
+STATIC_VERSION = _static_version()
+
+
+@asynccontextmanager
+async def lifespan(_app):
+    init_db()  # create tables if missing (seeding runs in startup.sh / python -m app.seed)
+    from .purge import start_background_purge
+    start_background_purge()
+    log = logging.getLogger("app")
+    from .db import engine
+    log.info("database=%s storage=%s static=%s", engine.dialect.name, settings.STORAGE_BACKEND, STATIC_VERSION)
+    yield
+
+
+app = FastAPI(title="Pre-Plan Follow-Up Portal", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
 
 
 @app.middleware("http")
@@ -42,11 +68,6 @@ for r in (auth_routes, images, amo, tso, checker, admin):
     app.include_router(r.router)
 
 
-@app.on_event("startup")
-def _startup():
-    init_db()  # create tables if missing (seeding runs in startup.sh / python -m app.seed)
-    from .purge import start_background_purge
-    start_background_purge()
 
 
 HOME = {"amo": "/amo", "tso": "/tso", "checker": "/checker", "admin": "/admin"}

@@ -63,7 +63,7 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(100))
     role: Mapped[str] = mapped_column(String(20), index=True)  # amo | tso | checker | admin
     display_name: Mapped[str] = mapped_column(String(160), default="")
-    zone_code: Mapped[int | None] = mapped_column(ForeignKey("zones.code"), nullable=True)
+    zone_code: Mapped[int | None] = mapped_column(ForeignKey("zones.code"), nullable=True, index=True)
     territory_code: Mapped[int | None] = mapped_column(ForeignKey("territories.code"), nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     session_version: Mapped[int] = mapped_column(Integer, default=1)

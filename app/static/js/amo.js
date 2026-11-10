@@ -42,8 +42,9 @@
     try {
       S.data = await api.get('/api/amo/report' + (date ? '?date=' + encodeURIComponent(date) : ''));
     } catch (e) {
-      qs('#loadState').innerHTML = `<span class="error">${esc(e.message)}</span> <button class="btn btn-sm" type="button" id="retryLoad">Retry</button>`;
-      qs('#retryLoad').onclick = () => load(date);
+      const outOfRange = date && (e.status === 400 || e.status === 410);
+      qs('#loadState').innerHTML = `<span class="error">${esc(e.message)}</span> <button class="btn btn-sm" type="button" id="retryLoad">${outOfRange ? 'Go to today' : 'Retry'}</button>`;
+      qs('#retryLoad').onclick = () => load(outOfRange ? null : date);
       return;
     }
     S.date = S.data.date;
@@ -133,10 +134,11 @@
     const box = qs('#meetingUploader');
     if (ro && !d.meeting_images.length) { box.className = ''; box.innerHTML = '<span class="muted small">No meeting photo uploaded.</span>'; S.meetingUp = null; }
     else {
-      S.meetingUp = trackBusy(new Uploader(box, {
+      S.meetingUp = new Uploader(box, {
         fields: { kind: 'meeting', date: S.date }, images: d.meeting_images, editable: !ro, max: 4, label: 'Add meeting photo',
         onChange: (imgs) => { S.data.meeting_images = imgs; markStarted(); if (imgs.length) qs('#meetingCard').classList.remove('missing'); applyHeldVisibility(); },
-      }));
+        onBusyChange: refreshSubmit,
+      });
     }
     applyHeldVisibility();
   }
@@ -169,17 +171,18 @@
         await api.put('/api/amo/sr/' + encodeURIComponent(sr.sr_id), { date: S.date, amo_remarks: v });
         sr.entry.amo_remarks = v.trim(); markStarted();
       }, el.querySelector('.save-ind'));
-      ta.addEventListener('input', () => { sr.entry.amo_remarks = ta.value; updateSR(sr); saver.schedule(); });
+      ta.addEventListener('input', () => { sr.entry.amo_remarks = ta.value; updateSR(sr); refreshSubmit(); saver.schedule(); });
       ta.addEventListener('blur', () => saver.flush().catch(() => { }));
       S.srSavers.set(sr.sr_id, saver);
     }
     const up = el.querySelector('.up');
     if (ro && !sr.images.length) up.innerHTML = '<span class="muted small">No plan photo uploaded.</span>';
     else {
-      S.srUps.set(sr.sr_id, trackBusy(new Uploader(up, {
+      S.srUps.set(sr.sr_id, new Uploader(up, {
         fields: { kind: 'sr', date: S.date, sr_id: sr.sr_id }, images: sr.images, editable: !ro, max: 6, label: 'Add plan photos',
         onChange: (imgs) => { sr.images = imgs; sr.entry.tso_status = 'pending'; markStarted(); updateSR(sr); updateProgress(); applyFilter(); },
-      })));
+        onBusyChange: () => { updateSR(sr); refreshSubmit(); },
+      }));
     }
     sr._el = el; updateSR(sr);
     return el;
@@ -187,8 +190,9 @@
 
   function updateSR(sr) {
     const el = sr._el; if (!el) return;
-    const n = sr.images.length, b = [];
-    if (n) b.push(`<span class="badge badge-ok">${n} photo${n > 1 ? 's' : ''}</span>`);
+    const n = sr.images.length, b = [], up = S.srUps.get(sr.sr_id);
+    if (up && up.busy) b.push('<span class="badge badge-info">Uploading…</span>');
+    else if (n) b.push(`<span class="badge badge-ok">${n} photo${n > 1 ? 's' : ''}</span>`);
     else b.push(hasRemark(sr) ? '<span class="badge badge-info">No photo · remark given</span>' : '<span class="badge badge-warn">No photo</span>');
     if (sr.images.some(i => i.duplicate)) b.push('<span class="badge badge-bad" title="A photo was uploaded before">Re-used photo</span>');
     if (showTso()) b.push(sr.entry.tso_status === 'approved' ? '<span class="badge badge-ok">TSO approved ✓</span>' : '<span class="badge">TSO pending</span>');
@@ -232,11 +236,6 @@
   }
 
   /* ---------------- busy tracking / submit ---------------- */
-  function trackBusy(up) {
-    const orig = up.addFiles.bind(up);
-    up.addFiles = async (files) => { const p = orig(files); refreshSubmit(); try { await p; } finally { refreshSubmit(); } };
-    return up;
-  }
   const anyBusy = () => (S.meetingUp && S.meetingUp.busy) || Array.from(S.srUps.values()).some(u => u.busy);
 
   function refreshSubmit() {

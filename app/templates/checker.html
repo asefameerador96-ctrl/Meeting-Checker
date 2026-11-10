@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+{% block title %}Checker Portal · Pre-Plan Follow-Up Portal{% endblock %}
+{% block head %}
+<style>
+  .viz-root {
+    --surface-1: #ffffff; --ink-2: #52514e; --ink-muted: #898781; --grid: #e1e0d9; --axis: #c3c2b7;
+    --s-missing: #eb6834; --s-uploaded: #1baf7a; --s-checked: #2a78d6; --s-total: #6250d6;
+  }
+  .page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
+  .page-head p { margin: 0; }
+  .filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+  .filters label { flex: 1 1 150px; min-width: 0; }
+  .filters label.f-date { flex: 0 1 170px; }
+  .filters .actions { display: flex; gap: 8px; flex-wrap: wrap; flex: 1 1 auto; justify-content: flex-end; }
+  .is-loading { opacity: .5; pointer-events: none; transition: opacity .15s; }
+
+  /* territory summary */
+  .terr-title { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .terr-title h2 { margin: 0; }
+  .crumbs { font-size: .85rem; color: var(--muted); }
+  .mini-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-top: 12px; }
+  .mini-stats .stat { padding: 10px 12px; box-shadow: none; }
+  .mini-stats .stat .value { font-size: 1.25rem; }
+  .kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px 16px; }
+  .kv .k { font-size: .72rem; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
+  .kv .v { overflow-wrap: anywhere; }
+  .zones { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 12px; }
+  .zone-card { border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: var(--surface-2); display: flex; flex-direction: column; gap: 10px; }
+  .zone-card.valid-yes { border-color: #b7dfc6; } .zone-card.valid-no { border-color: #f0b8b2; }
+  .zone-card .zc-head { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; }
+  .zone-card .zc-head b { overflow-wrap: anywhere; }
+  .zone-card .valid { flex-direction: row; align-items: center; gap: 8px; color: var(--text); }
+  .zone-card .valid select { width: auto; min-height: 34px; padding: 4px 8px; }
+  .zone-card .thumbs .thumb { width: 64px; height: 64px; }
+  details.zones-wrap > summary { cursor: pointer; font-weight: 600; list-style: none; display: flex; align-items: center; gap: 8px; }
+  details.zones-wrap > summary::-webkit-details-marker { display: none; }
+  details.zones-wrap > summary::before { content: "›"; display: inline-block; transition: transform .15s; color: var(--muted); font-size: 1.2rem; }
+  details.zones-wrap[open] > summary::before { transform: rotate(90deg); }
+  details.zones-wrap[open] > summary { margin-bottom: 12px; }
+
+  /* the territory table is wide: let the checker page use the full screen width */
+  .container { max-width: 1680px; }
+  /* SR table */
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+  .toolbar input[type=search] { flex: 1 1 220px; width: auto; }
+  .toolbar .chk { flex-direction: row; align-items: center; gap: 6px; color: var(--text); font-weight: 400; white-space: nowrap; }
+  .sr-table-wrap { max-height: 75vh; }
+  .sr-table td { vertical-align: middle; }
+  .sr-table .thumbs { flex-wrap: nowrap; gap: 4px; }
+  .sr-table .thumb { width: 52px; height: 52px; }
+  .sr-table .c-routes { min-width: 140px; max-width: 220px; font-size: .82rem; color: var(--muted); }
+  .sr-table .c-rem { min-width: 160px; max-width: 280px; overflow-wrap: anywhere; }
+  .sr-table .c-hier { font-size: .78rem; line-height: 1.3; color: var(--muted); white-space: nowrap; }
+  .sr-table .c-hier .c-zone { color: var(--text); font-weight: 600; }
+  .sr-table th { z-index: 3; }
+  .sr-table .c-valid { min-width: 150px; }
+  .sr-table .c-valid select, .sr-table .c-valid input { min-height: 32px; padding: 4px 8px; font-size: .85rem; }
+  .sr-table .c-valid input { margin-top: 4px; }
+  .sr-table tr.grp td { background: var(--primary-soft); color: var(--primary); font-weight: 600; position: sticky; top: 37px; z-index: 2; }
+  .sr-table tr.is-checked td:not(.grp) { background: #f5fbf7; }
+  .sr-table tr.no-img td.c-photos { color: var(--bad); font-weight: 600; }
+  .sr-table th:last-child, .sr-table td.c-check { position: sticky; right: 0; background: var(--surface); box-shadow: inset 1px 0 0 var(--border), -6px 0 8px -6px rgba(0,0,0,.18); }
+  .sr-table td.c-check { z-index: 1; }
+  .sr-table th:last-child { z-index: 4; background: var(--surface-2); }
+  .sr-table tr.is-checked td.c-check { background: #f5fbf7; }
+  .btn-check { min-width: 120px; white-space: nowrap; }
+  .btn-check.na, .btn-check.na:disabled { background: transparent; color: var(--muted); border-style: dashed; opacity: 1; cursor: default; }
+  .btn-check.done { background: var(--ok-soft); color: var(--ok); border-color: #b7dfc6; }
+  .btn-check .by { font-weight: 400; font-size: .75rem; display: block; }
+  .flags { display: flex; gap: 4px; flex-wrap: wrap; }
+  .empty-state { padding: 40px 16px; text-align: center; color: var(--muted); }
+  .empty-state b { display: block; color: var(--text); font-size: 1.05rem; margin-bottom: 4px; }
+
+  /* dashboard */
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-bottom: 14px; }
+  .kpis .stat .value { font-size: 1.7rem; }
+  .kpis .stat .value small { font-size: 1rem; color: var(--muted); font-weight: 600; }
+  .charts { display: grid; grid-template-columns: minmax(300px, 2fr) minmax(320px, 3fr); gap: 14px; }
+  .chart-card { margin-bottom: 0; min-width: 0; }
+  .chart-card h3 { margin-bottom: 2px; }
+  .chart-card .sub { margin: 0 0 10px; }
+  .pie-box { position: relative; height: 300px; }
+  .bar-scroll { max-height: 520px; overflow-y: auto; }
+  .bar-box { position: relative; height: 320px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; font-size: .85rem; }
+  .legend .li { display: flex; align-items: center; gap: 6px; color: var(--text); }
+  .legend .sw { width: 12px; height: 12px; border-radius: 3px; flex: 0 0 auto; }
+  .legend .li b { font-variant-numeric: tabular-nums; }
+  .legend .li .muted { font-variant-numeric: tabular-nums; }
+  .pct-bar { display: inline-block; width: 70px; height: 6px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 99px; vertical-align: middle; margin-left: 6px; overflow: hidden; }
+  .pct-bar > i { display: block; height: 100%; background: var(--s-uploaded); }
+  .div-table tfoot td { font-weight: 700; background: var(--surface-2); }
+  .div-table tbody tr { cursor: pointer; }
+
+  @media (max-width: 900px) { .charts { grid-template-columns: 1fr; } }
+  @media (max-width: 640px) {
+    .filters label, .filters label.f-date { flex: 1 1 calc(50% - 10px); }
+    .filters .actions { justify-content: stretch; }
+    .filters .actions .btn { flex: 1 1 auto; }
+    .zones { grid-template-columns: 1fr; }
+    .pie-box { height: 260px; }
+    /* SR table becomes stacked cards on phones */
+    .sr-table-wrap { max-height: none; border: 0; background: transparent; overflow: visible; }
+    .sr-table thead { display: none; }
+    .sr-table, .sr-table tbody, .sr-table tr, .sr-table td { display: block; width: 100%; }
+    .sr-table tr { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 10px; padding: 6px 0; }
+    .sr-table tr.grp { border: 0; background: none; padding: 0; margin: 14px 0 6px; }
+    .sr-table tr.grp td { position: static; border-radius: 8px; }
+    .sr-table td { border: 0; padding: 4px 12px; display: grid; grid-template-columns: 110px 1fr; gap: 8px; align-items: center; }
+    .sr-table td::before { content: attr(data-label); font-size: .72rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+    .sr-table td.grp, .sr-table td.c-check { display: block; }
+    .sr-table td.grp::before, .sr-table td.c-check::before { content: none; }
+    .sr-table td.c-hier { display: none; }
+    .sr-table td.num { text-align: left; }
+    .sr-table td.c-check { position: static; box-shadow: none; }
+    .sr-table .c-routes, .sr-table .c-rem { max-width: none; }
+    .sr-table .thumbs { flex-wrap: wrap; }
+    .btn-check { width: 100%; }
+    .sr-table tr.is-checked td { background: transparent !important; }
+    .sr-table tr.is-checked { border-color: #b7dfc6; background: #f5fbf7; }
+  }
+</style>
+{% endblock %}
+{% block content %}
+<div class="viz-root">
+  <div class="page-head">
+    <div>
+      <h1>Check-back portal</h1>
+      <p class="muted small">Territories appear here once their TSO has made the final submission. Only the last few days are available.</p>
+    </div>
+  </div>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab" role="tab" data-tab="details" id="tab-details" aria-controls="panel-details">Territory details</button>
+    <button class="tab" role="tab" data-tab="dashboard" id="tab-dashboard" aria-controls="panel-dashboard">Dashboard</button>
+  </nav>
+
+  <!-- ================= Tab 1: territory details ================= -->
+  <section id="panel-details" role="tabpanel" aria-labelledby="tab-details" class="hidden">
+    <div class="card">
+      <div class="filters">
+        <label class="f-date">Date<select id="dDate"></select></label>
+        <label>Wing<select id="dWing"></select></label>
+        <label>Division<select id="dDivision"></select></label>
+        <label>Territory<select id="dTerritory"></select></label>
+        <div class="actions"><button class="btn btn-ghost" id="dReload" type="button">Refresh</button></div>
+      </div>
+    </div>
+    <div id="dBody">
+      <div class="card empty-state"><b>Choose a territory</b>Pick a wing, division and territory above to see everything submitted for that day.</div>
+    </div>
+  </section>
+
+  <!-- ================= Tab 2: dashboard ================= -->
+  <section id="panel-dashboard" role="tabpanel" aria-labelledby="tab-dashboard" class="hidden">
+    <div class="card">
+      <div class="filters">
+        <label class="f-date">Date<select id="bDate"></select></label>
+        <label>Wing<select id="bWing"></select></label>
+        <label>Division<select id="bDivision"></select></label>
+        <label>Territory<select id="bTerritory"></select></label>
+        <div class="actions">
+          <a class="btn btn-primary" id="dlMissing" href="#" download>Download missing-images Excel</a>
+          <a class="btn btn-ghost" id="dlFull" href="#" download>Full status Excel</a>
+        </div>
+      </div>
+    </div>
+    <div id="bBody">
+      <div class="kpis" id="kpis"></div>
+      <div class="charts">
+        <div class="card chart-card">
+          <h3>SR photo coverage</h3>
+          <p class="sub muted small" id="pieSub">Share of all SRs in scope</p>
+          <div class="pie-box"><canvas id="pieChart" role="img" aria-label="Pie chart of SR photo coverage"></canvas></div>
+          <div class="legend" id="pieLegend"></div>
+        </div>
+        <div class="card chart-card">
+          <h3 id="barTitle">Count of SR vs SRs with images, by division</h3>
+          <p class="sub muted small" id="barSub">Click a division to drill into it.</p>
+          <div class="bar-scroll"><div class="bar-box" id="barBox"><canvas id="barChart" role="img" aria-label="Bar chart of SR count versus SRs with images by division"></canvas></div></div>
+          <div class="legend" id="barLegend"></div>
+        </div>
+      </div>
+      <div class="card" style="margin-top:14px">
+        <div class="card-head"><h3 style="margin:0" id="tblTitle">Division numbers</h3><span class="muted small" id="tblNote"></span></div>
+        <div class="table-wrap"><table class="tbl div-table" id="divTable"></table></div>
+      </div>
+    </div>
+  </section>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="/static/js/checker.js?v={{ v }}"></script>
+{% endblock %}

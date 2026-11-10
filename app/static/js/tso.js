@@ -28,6 +28,7 @@
       renderAll();
       if (keepScroll) window.scrollTo(0, y);
     } catch (e) {
+      if (date && (e.status === 400 || e.status === 410)) { toast(e.message + ' Showing today instead.', 'bad'); return load(null, keepScroll); }
       qs('#zones').innerHTML = `<div class="banner banner-bad">${esc(e.message)}</div>`;
     }
   }
@@ -230,6 +231,7 @@
       });
       if (locked && !d.tso_images.length) qs('#tsoUploader').innerHTML = '<span class="muted small">No TSO photo.</span>';
       const ta = qs('#tsoRemarks'); ta.value = d.territory_report.tso_remarks || ''; ta.disabled = locked;
+      ta.placeholder = locked ? 'No remarks' : 'Anything the check-back team should know about today';
       qs('#remarksSaved').textContent = '';
     }
     const t = d.totals, submitted = d.territory_report.status === 'submitted';
@@ -243,6 +245,7 @@
     else items.push(item('ok', 'No AMO report in draft or returned'));
     if (d.notStarted.length) items.push(item('warn', `${d.notStarted.length} AMO(s) have not started: ${d.notStarted.map(z => esc(z.zone.name)).join(', ')} — their SRs will be reported as <b>not uploaded</b>`));
     if (!d.can_edit && !submitted) items.push(item('todo', esc(d.lock_reason || 'This date is closed for editing')));
+    qs('#checklistTitle').textContent = submitted ? 'Submission' : 'Before you submit';
     qs('#checklist').innerHTML = submitted
       ? item('ok', `Submitted by ${esc(d.territory_report.submitted_by || '')} on ${esc(fmtDateTime(d.territory_report.submitted_at))}`)
       : items.join('');
