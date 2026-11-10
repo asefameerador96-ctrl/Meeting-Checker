@@ -18,7 +18,7 @@ param location string = resourceGroup().location
 @description('Region for the PostgreSQL server (some subscriptions cannot create PostgreSQL in every region).')
 param postgresLocation string = location
 
-@description('App Service plan SKU. P1v3 supports autoscale and handles ~1,350 concurrent uploaders; B2/S1 are cheaper for trials.')
+@description('App Service plan SKU. Premium v3 supports autoscale; P0v3 x 2-10 instances (1 vCPU / 4 GB each) handles ~1,350 concurrent uploaders.')
 @allowed([
   'B1'
   'B2'
@@ -31,7 +31,7 @@ param postgresLocation string = location
   'P2v3'
   'P3v3'
 ])
-param sku string = 'P1v3'
+param sku string = 'P0v3'
 
 @description('Minimum (and initial) number of web instances.')
 @minValue(1)
@@ -41,7 +41,7 @@ param minInstances int = 2
 @description('Maximum number of web instances the autoscale rule may add (Standard/Premium SKUs only).')
 @minValue(1)
 @maxValue(30)
-param maxInstances int = 8
+param maxInstances int = 10
 
 @description('Gunicorn worker processes per instance.')
 @minValue(1)

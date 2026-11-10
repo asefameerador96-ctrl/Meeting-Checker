@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.49.2.45890",
-      "templateHash": "3022245228418091592"
+      "templateHash": "630821537061075657"
     }
   },
   "parameters": {
@@ -33,7 +33,7 @@
     },
     "sku": {
       "type": "string",
-      "defaultValue": "P1v3",
+      "defaultValue": "P0v3",
       "allowedValues": [
         "B1",
         "B2",
@@ -47,7 +47,7 @@
         "P3v3"
       ],
       "metadata": {
-        "description": "App Service plan SKU. P1v3 supports autoscale and handles ~1,350 concurrent uploaders; B2/S1 are cheaper for trials."
+        "description": "App Service plan SKU. Premium v3 supports autoscale; P0v3 x 2-10 instances (1 vCPU / 4 GB each) handles ~1,350 concurrent uploaders."
       }
     },
     "minInstances": {
@@ -61,7 +61,7 @@
     },
     "maxInstances": {
       "type": "int",
-      "defaultValue": 8,
+      "defaultValue": 10,
       "minValue": 1,
       "maxValue": 30,
       "metadata": {

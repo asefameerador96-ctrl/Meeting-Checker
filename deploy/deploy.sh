@@ -8,8 +8,8 @@
 #   LOCATION         Azure region                          (default: southeastasia)
 #   APP_NAME         web app name, globally unique         (default: preplan-<random>, remembered)
 #   PG_LOCATION      region for PostgreSQL                 (default: $LOCATION)
-#   SKU              App Service plan SKU                  (default: P1v3; B2/S1 for a cheap trial)
-#   MIN_INSTANCES / MAX_INSTANCES   autoscale range        (default: 2 / 8)
+#   SKU              App Service plan SKU                  (default: P0v3; P1v3 once quota allows)
+#   MIN_INSTANCES / MAX_INSTANCES   autoscale range        (default: 2 / 10)
 #   PG_SKU / PG_TIER PostgreSQL compute                    (default: Standard_D2ds_v5 / GeneralPurpose)
 #   SKIP_INFRA=1     only redeploy the code
 #
@@ -30,6 +30,8 @@ die()  { printf '\033[1;31mERROR: %s\033[0m\n' "$*" >&2; exit 1; }
 ENV_RESOURCE_GROUP="${RESOURCE_GROUP:-}"
 ENV_LOCATION="${LOCATION:-}"
 ENV_APP_NAME="${APP_NAME:-}"
+ENV_PG_LOCATION="${PG_LOCATION:-}"; ENV_SKU="${SKU:-}"; ENV_MIN_INSTANCES="${MIN_INSTANCES:-}"
+ENV_MAX_INSTANCES="${MAX_INSTANCES:-}"; ENV_PG_SKU="${PG_SKU:-}"; ENV_PG_TIER="${PG_TIER:-}"
 if [ -f "$STATE_FILE" ]; then
   # shellcheck disable=SC1090
   source "$STATE_FILE"
@@ -38,12 +40,12 @@ fi
 RESOURCE_GROUP="${ENV_RESOURCE_GROUP:-${RESOURCE_GROUP:-rg-preplan-portal}}"
 LOCATION="${ENV_LOCATION:-${LOCATION:-southeastasia}}"
 APP_NAME="${ENV_APP_NAME:-${APP_NAME:-preplan-$(openssl rand -hex 3)}}"
-PG_LOCATION="${PG_LOCATION:-$LOCATION}"
-SKU="${SKU:-P1v3}"
-MIN_INSTANCES="${MIN_INSTANCES:-2}"
-MAX_INSTANCES="${MAX_INSTANCES:-8}"
-PG_SKU="${PG_SKU:-Standard_D2ds_v5}"
-PG_TIER="${PG_TIER:-GeneralPurpose}"
+PG_LOCATION="${ENV_PG_LOCATION:-${PG_LOCATION:-$LOCATION}}"
+SKU="${ENV_SKU:-${SKU:-P0v3}}"
+MIN_INSTANCES="${ENV_MIN_INSTANCES:-${MIN_INSTANCES:-2}}"
+MAX_INSTANCES="${ENV_MAX_INSTANCES:-${MAX_INSTANCES:-10}}"
+PG_SKU="${ENV_PG_SKU:-${PG_SKU:-Standard_D2ds_v5}}"
+PG_TIER="${ENV_PG_TIER:-${PG_TIER:-GeneralPurpose}}"
 SECRET_KEY="${SECRET_KEY:-$(openssl rand -hex 32)}"
 # Upper + lower + digits satisfies the PostgreSQL complexity rule and needs no URL escaping.
 POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-Pg$(openssl rand -hex 16)}"
