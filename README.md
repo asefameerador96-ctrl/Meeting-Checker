@@ -127,8 +127,18 @@ Set as App Service application settings (the Bicep template sets the ones marked
 | `SEED_ON_STARTUP` | `true` | `startup.sh` runs `python -m app.seed` before starting; set `false` to skip. |
 
 Connection budget: `MAX_INSTANCES x WEB_CONCURRENCY x (DB_POOL_SIZE + DB_MAX_OVERFLOW)` must stay below the
-PostgreSQL `max_connections` (8 x 3 x 10 = 240 against about 859 on `Standard_D2ds_v5`; Burstable `B1ms`
+PostgreSQL `max_connections` (10 x 3 x 10 = 300 against about 859 on `Standard_D2ds_v5`; Burstable `B1ms`
 allows only about 50, so use it only with a single instance).
+
+## Live deployment
+
+- URL: **https://preplan-4bab2d.azurewebsites.net** (resource group `rg-preplan-portal`, Southeast Asia).
+- App Service plan **P0v3**, autoscale **2 to 10 instances** on CPU / HTTP queue. The subscription currently has zero
+  quota for P1v3/S/B SKUs; request a quota increase (Portal > Quotas > App Service) to move to P1v3.
+- PostgreSQL Flexible Server General Purpose `Standard_D2ds_v5`; Blob container `meeting-images` with a lifecycle delete rule.
+- Load test on the live site: 150 AMOs uploading 450 photos (~0.9 MB each) at the same moment gave 0 errors, ~12 uploads/s on
+  2 instances (p50 8 s, p95 12 s while saturated); autoscale adds instances under sustained load.
+- Redeploy code only: `SKIP_INFRA=1 bash deploy/deploy.sh` (needs `deploy/.deploy-output.env`, which holds the secrets).
 
 ## Cost estimate (per month, approximate)
 
@@ -137,11 +147,11 @@ allows only about 50, so use it only with a single instance).
 
 | Resource | Default (production) | Cheap trial (`SKU=B2`, `PG_SKU=Standard_B1ms`) |
 |---|---|---|
-| App Service plan | P1v3 x 2 instances: ~$250 (each extra autoscaled instance ~$0.17/hour) | B2 x 1: ~$30 |
+| App Service plan | P0v3 x 2 instances (autoscale to 10): ~$130 (each extra autoscaled instance ~$0.09/hour) | B2 x 1: ~$30 |
 | PostgreSQL Flexible Server | General Purpose D2ds_v5 + 32 GB: ~$140 | Burstable B1ms + 32 GB: ~$17 |
 | Blob Storage | ~30 GB photos (3-day window) + transactions: ~$5 | ~$5 |
 | Bandwidth, logs | ~$5 | ~$2 |
-| **Total** | **~$400** | **~$55** |
+| **Total** | **~$280** | **~$55** |
 
 Stopping the PostgreSQL server and scaling the plan down outside working hours reduces the cost further.
 
