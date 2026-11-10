@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Sign in · Pre-Plan Follow-Up Portal{% endblock %}
+{% block bodyclass %}login-body{% endblock %}
+{% block content %}
+<div class="login-wrap">
+  <form class="card login-card" id="loginForm" autocomplete="on">
+    <div class="login-logo">✓</div>
+    <h1>Pre-Plan Follow-Up Portal</h1>
+    <p class="muted">AMO · TSO · Check-back team</p>
+    <label>Username<input name="username" required autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="e.g. amo5001"></label>
+    <label>Password<input name="password" type="password" required autocomplete="current-password"></label>
+    <div class="error" id="loginErr" hidden></div>
+    <button class="btn btn-primary btn-block" type="submit" id="loginBtn">Sign in</button>
+  </form>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const f = e.target, err = document.getElementById('loginErr'), btn = document.getElementById('loginBtn');
+  err.hidden = true; btn.disabled = true; btn.textContent = 'Signing in…';
+  try {
+    const r = await api.post('/api/login', {username: f.username.value, password: f.password.value});
+    location.href = r.redirect || '/';
+  } catch (ex) { err.textContent = ex.message; err.hidden = false; btn.disabled = false; btn.textContent = 'Sign in'; }
+});
+</script>
+{% endblock %}
