@@ -24,7 +24,7 @@ from ..config import settings
 from ..db import get_db
 from ..models import Assignment, Image, User, Zone
 from ..services import (assert_amo_can_edit, assert_tso_can_edit, get_sr_entry, get_zone_report, image_json,
-                        parse_date)
+                        parse_date, retention_start)
 from ..storage import get_storage
 
 router = APIRouter(prefix="/api/images", tags=["images"])
@@ -65,7 +65,7 @@ def _process(data: bytes):
 
 
 @router.post("")
-async def upload_image(file: UploadFile = File(...), kind: str = Form(...), date: str = Form(...),
+def upload_image(file: UploadFile = File(...), kind: str = Form(...), date: str = Form(...),
                        sr_id: str = Form(""), orig_sha256: str = Form(""), taken_at: str = Form(""),
                        user: User = Depends(require_role("amo", "tso")), db: Session = Depends(get_db)):
     d = parse_date(date)
@@ -97,7 +97,7 @@ async def upload_image(file: UploadFile = File(...), kind: str = Form(...), date
         if n >= 10:
             raise HTTPException(400, "Maximum 10 TSO images")
 
-    data = await file.read(settings.MAX_UPLOAD_MB * 1024 * 1024 + 1)
+    data = file.file.read(settings.MAX_UPLOAD_MB * 1024 * 1024 + 1)
     if len(data) > settings.MAX_UPLOAD_MB * 1024 * 1024:
         raise HTTPException(413, f"Image larger than {settings.MAX_UPLOAD_MB} MB")
     if not data:
@@ -153,6 +153,8 @@ def view_image(image_id: int, variant: str, user: User = Depends(current_user), 
     img = db.get(Image, image_id)
     if not img or not _can_view(user, img) or variant not in ("full", "thumb"):
         raise HTTPException(404, "Not found")
+    if img.report_date < retention_start():
+        raise HTTPException(410, "Photo expired (retention window)")
     return get_storage().response(img.blob_key if variant == "full" else img.thumb_key, "image/jpeg")
 
 

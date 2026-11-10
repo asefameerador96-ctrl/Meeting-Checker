@@ -45,6 +45,8 @@ for r in (auth_routes, images, amo, tso, checker, admin):
 @app.on_event("startup")
 def _startup():
     init_db()  # create tables if missing (seeding runs in startup.sh / python -m app.seed)
+    from .purge import start_background_purge
+    start_background_purge()
 
 
 HOME = {"amo": "/amo", "tso": "/tso", "checker": "/checker", "admin": "/admin"}

@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}AMO · Pre-Plan Follow-Up Portal{% endblock %}
+{% block head %}
+<style>
+  .amo-wrap { max-width: 860px; margin: 0 auto; }
+  .amo-head h1 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .amo-head .meta { margin: 2px 0 0; }
+  .amo-head .date-pick { width: 220px; }
+  @media (max-width: 640px) { .amo-head .date-pick { width: 100%; } }
+  .save-ind { font-size: .8rem; color: var(--muted); min-height: 1em; }
+  .save-ind.ok { color: var(--ok); } .save-ind.bad { color: var(--bad); }
+  .field-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  .field-grid .full { grid-column: 1 / -1; }
+  fieldset.plain { border: 0; padding: 0; margin: 0; min-width: 0; }
+  fieldset.plain legend { font-size: .85rem; color: var(--muted); font-weight: 500; padding: 0; margin-bottom: 6px; }
+  .req::after { content: " *"; color: var(--bad); }
+  .progress-card .count { font-size: 1.05rem; font-weight: 700; }
+  .progress-card .progressbar > i { transition: width .3s; }
+  .progress-card .progressbar.done > i { background: var(--ok); }
+  .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+  .toolbar input[type=search] { flex: 1 1 220px; }
+  .toolbar .chk { flex-direction: row; align-items: center; gap: 6px; color: var(--text); font-weight: 400; white-space: nowrap; }
+  .sr-card { transition: box-shadow .2s, border-color .2s; scroll-margin-top: 72px; }
+  .sr-card .sr-title { font-weight: 600; font-size: 1rem; }
+  .sr-card .sr-id { color: var(--muted); font-weight: 500; font-size: .85rem; }
+  .sr-card .routes { margin: 2px 0 10px; }
+  .sr-card .badges { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  .sr-card .tso-note { margin-top: 8px; padding: 8px 10px; border-radius: 8px; background: var(--info-soft); color: var(--text); font-size: .88rem; }
+  .sr-card .remark-label { margin: 12px 0 4px; font-size: .85rem; color: var(--muted); font-weight: 500; }
+  .sr-card .remark-label .hint { font-weight: 400; font-size: .8rem; }
+  .sr-card .remark-ro { white-space: pre-wrap; padding: 8px 10px; background: var(--surface-2); border-radius: 8px; border: 1px solid var(--border); font-size: .9rem; }
+  .sr-card.missing, #meetingCard.missing { border-color: var(--bad); box-shadow: 0 0 0 3px var(--bad-soft); }
+  .sr-card.flash { animation: flash 1.2s ease-out 2; }
+  @keyframes flash { 50% { box-shadow: 0 0 0 6px var(--bad-soft); } }
+  .sr-card .need { display: none; color: var(--bad); font-size: .85rem; margin-top: 8px; font-weight: 600; }
+  .sr-card.missing .need { display: block; }
+  .empty-filter { text-align: center; padding: 18px; }
+  .submit-bar { display: flex; gap: 10px; align-items: center; }
+  .submit-bar .btn { flex: 1; min-height: 48px; font-size: 1rem; }
+  .submit-bar .hint { font-size: .8rem; }
+  #errBox ul { margin: 6px 0 0; padding-left: 18px; }
+  .locked .add-tile, .locked .edit-only { display: none; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="amo-wrap" id="amoApp">
+  <section class="card amo-head" id="headCard">
+    <div class="card-head" style="margin-bottom:0">
+      <div style="min-width:0">
+        <h1><span id="zoneName">Loading…</span> <span id="statusBadge"></span></h1>
+        <div class="meta muted small" id="zoneMeta"></div>
+      </div>
+      <label class="date-pick">Report date<select id="dateSel" aria-label="Report date"></select></label>
+    </div>
+    <div id="lockBanner" class="banner hidden" style="margin:12px 0 0"></div>
+  </section>
+
+  <div id="loadState" class="skeleton">Loading your report…</div>
+
+  <div id="main" class="hidden">
+    <section class="card progress-card">
+      <div class="row">
+        <div class="count" id="progCount"></div><span class="spacer"></span>
+        <span class="muted small" id="progImages"></span>
+      </div>
+      <div class="progressbar" id="progBar"><i style="width:0"></i></div>
+      <div class="toolbar">
+        <input type="search" id="srSearch" placeholder="Search SR name, ID or route…" aria-label="Search SRs">
+        <label class="chk small"><input type="checkbox" id="onlyMissing"> Only SRs without photos</label>
+      </div>
+    </section>
+
+    <section class="card" id="meetingCard">
+      <div class="card-head">
+        <h2 style="margin:0">Pre-plan meeting</h2>
+        <span class="save-ind" id="meetingSaved" aria-live="polite"></span>
+      </div>
+      <form id="meetingForm" class="field-grid" autocomplete="off" onsubmit="return false">
+        <label class="full">Meeting location<input name="location" maxlength="255" placeholder="e.g. Territory office"></label>
+        <fieldset class="plain full">
+          <legend class="req">Was the pre-plan meeting held?</legend>
+          <div class="radio-row">
+            <label><input type="radio" name="meeting_held" value="yes"> Yes, held</label>
+            <label><input type="radio" name="meeting_held" value="no"> No, not held</label>
+          </div>
+        </fieldset>
+        <label class="held-only"><span class="req">Meeting time</span><input type="time" name="meeting_time"></label>
+        <label class="notheld-only full"><span class="req">Reason meeting was not held</span><textarea name="not_held_reason" maxlength="2000" rows="2"></textarea></label>
+        <label>SRs present<input type="number" name="sr_present_count" min="0" max="999" inputmode="numeric" placeholder="0"></label>
+        <label class="full">Vacancy / absence remarks<textarea name="vacancy_remarks" maxlength="2000" rows="2" placeholder="Vacant routes, absent SRs, etc. (optional)"></textarea></label>
+        <div class="full held-photos">
+          <div class="small muted" style="margin-bottom:6px;font-weight:500"><span class="req">Meeting photos</span> (max 4)</div>
+          <div id="meetingUploader"></div>
+        </div>
+      </form>
+    </section>
+
+    <div class="card-head" style="margin:18px 2px 8px">
+      <h2 style="margin:0">SR outlet-wise plans</h2>
+      <span class="muted small edit-only">Add plan photos, or a remark if no photo</span>
+    </div>
+    <div id="srList"></div>
+    <div id="srEmpty" class="card muted empty-filter hidden">No SR matches your search.</div>
+
+    <div id="errBox" class="banner banner-bad hidden" role="alert"></div>
+    <div class="sticky-actions" id="submitArea">
+      <div class="submit-bar">
+        <button class="btn btn-primary" id="btnSubmit" type="button">Submit to TSO</button>
+      </div>
+      <div class="hint muted small" id="submitHint" style="text-align:center;margin-top:4px"></div>
+    </div>
+  </div>
+</div>
+
+<dialog id="confirmDlg" class="modal"><form method="dialog" class="body">
+  <h3>Submit to TSO?</h3>
+  <p id="confirmText" class="muted" style="margin:0"></p>
+  <p class="small muted" style="margin:0">After submitting you can no longer edit, unless the TSO returns the report to you.</p>
+  <div class="row-end"><button class="btn btn-ghost" value="cancel">Cancel</button><button class="btn btn-primary" value="ok">Submit</button></div>
+</form></dialog>
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/amo.js?v={{ v }}"></script>
+{% endblock %}

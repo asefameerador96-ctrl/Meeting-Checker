@@ -30,6 +30,7 @@ def parse_date(s: str | None, default_today=True) -> date:
 def ensure_editable_date(d: date):
     """AMO/TSO may only work on today or up to ALLOW_BACKDATE_DAYS back; never the future."""
     t = today()
+    ensure_viewable_date(d)
     if d > t:
         raise HTTPException(400, "Cannot submit for a future date")
     if d < t - timedelta(days=settings.ALLOW_BACKDATE_DAYS):
@@ -38,7 +39,27 @@ def ensure_editable_date(d: date):
 
 def editable_dates() -> list[str]:
     t = today()
-    return [(t - timedelta(days=i)).isoformat() for i in range(settings.ALLOW_BACKDATE_DAYS + 1)]
+    n = min(settings.ALLOW_BACKDATE_DAYS + 1, max(settings.RETENTION_DAYS, 1))
+    return [(t - timedelta(days=i)).isoformat() for i in range(n)]
+
+
+def retention_start() -> date:
+    """Oldest date still viewable (today - RETENTION_DAYS + 1)."""
+    return today() - timedelta(days=max(settings.RETENTION_DAYS, 1) - 1)
+
+
+def viewable_dates() -> list[str]:
+    """Dates that can be viewed/checked/exported (newest first)."""
+    t = today()
+    return [(t - timedelta(days=i)).isoformat() for i in range(max(settings.RETENTION_DAYS, 1))]
+
+
+def ensure_viewable_date(d: date):
+    """Only the last RETENTION_DAYS days of data & photos are available."""
+    if d > today():
+        raise HTTPException(400, "Date is in the future")
+    if d < retention_start():
+        raise HTTPException(410, f"Only the last {settings.RETENTION_DAYS} days are available; older photos are deleted")
 
 
 # ---- get-or-create helpers ----

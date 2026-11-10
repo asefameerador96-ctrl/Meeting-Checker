@@ -26,6 +26,12 @@ class Settings:
     MAX_IMAGES_PER_SR = int(os.getenv("MAX_IMAGES_PER_SR", "6"))
     # Photos whose EXIF capture time is older than this many days before the report date are flagged
     OLD_PHOTO_DAYS = int(os.getenv("OLD_PHOTO_DAYS", "2"))
+    # Data/photo retention window: only the last N days (today included) can be viewed/checked;
+    # photos older than that are deleted automatically (app purge job + Blob lifecycle rule).
+    RETENTION_DAYS = int(os.getenv("RETENTION_DAYS", "3"))
+    PURGE_INTERVAL_MINUTES = int(os.getenv("PURGE_INTERVAL_MINUTES", "60"))
+    DB_POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "5"))
+    DB_MAX_OVERFLOW = int(os.getenv("DB_MAX_OVERFLOW", "5"))
     COOKIE_SECURE = _bool(os.getenv("COOKIE_SECURE"), default=False)
     SEED_ON_STARTUP = _bool(os.getenv("SEED_ON_STARTUP"), default=True)
     SESSION_MAX_AGE = int(os.getenv("SESSION_MAX_AGE", str(14 * 24 * 3600)))

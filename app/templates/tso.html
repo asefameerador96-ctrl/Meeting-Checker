@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% block title %}TSO Review · Pre-Plan Follow-Up Portal{% endblock %}
+{% block head %}
+<style>
+  .tso-head { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: flex-start; }
+  .tso-head .date-pick { min-width: 170px; }
+  .tso-stats { margin-top: 14px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  .tso-stats .stat { padding: 10px 14px; box-shadow: none; }
+  .tso-stats .stat .value { font-size: 1.35rem; }
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+  .toolbar input[type=search] { flex: 1 1 220px; width: auto; }
+  .toolbar .chk { flex-direction: row; align-items: center; gap: 6px; color: var(--text); font-weight: 400; white-space: nowrap; }
+
+  .zone { padding: 0; overflow: hidden; }
+  .zone-head { display: flex; align-items: center; gap: 10px; width: 100%; padding: 14px 16px; background: none; border: 0; font: inherit;
+    color: inherit; text-align: left; cursor: pointer; flex-wrap: wrap; }
+  .zone-head:hover { background: var(--surface-2); }
+  .zone-head .chev { transition: transform .15s; color: var(--muted); font-size: .9rem; width: 14px; }
+  .zone.open .zone-head .chev { transform: rotate(90deg); }
+  .zone-title { flex: 1 1 200px; min-width: 0; }
+  .zone-title b { font-size: 1rem; }
+  .zone-meta { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .zone-body { display: none; padding: 0 16px 16px; border-top: 1px solid var(--border); }
+  .zone.open .zone-body { display: block; }
+  .zone-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; padding: 12px 0; }
+  .meeting { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px 16px; background: var(--surface-2);
+    border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 12px; }
+  .meeting .k { font-size: .75rem; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
+  .meeting .v { overflow-wrap: anywhere; }
+  .meeting .photos { grid-column: 1 / -1; }
+
+  .sr-list { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+  .sr { display: grid; grid-template-columns: minmax(170px, 1.1fr) minmax(190px, 1.4fr) minmax(200px, 1.5fr) 150px; gap: 12px;
+    border: 1px solid var(--border); border-radius: 8px; padding: 12px; background: var(--surface); align-items: start; }
+  .sr.approved { border-color: #b7dfc6; background: #f7fcf9; }
+  .sr.flash { box-shadow: 0 0 0 3px var(--warn-soft); }
+  .sr-id { font-size: .8rem; color: var(--muted); }
+  .sr-routes { font-size: .82rem; color: var(--muted); margin-top: 4px; overflow-wrap: anywhere; }
+  .sr-badges { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
+  .sr .lbl { font-size: .75rem; color: var(--muted); font-weight: 600; margin-bottom: 3px; }
+  .amo-remark { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .9rem; background: var(--surface-2); border-radius: 6px; padding: 6px 8px; margin-bottom: 8px; }
+  .sr textarea { min-height: 40px; height: 40px; font-size: .9rem; }
+  .sr .act { display: flex; flex-direction: column; gap: 6px; }
+  .sr .act .btn { width: 100%; }
+  .sr .act .undo { font-size: .8rem; }
+  .saved { font-size: .75rem; color: var(--ok); min-height: 1em; }
+  .no-photo { font-size: .85rem; color: var(--bad); font-weight: 600; }
+  .empty-zone { padding: 14px; text-align: center; color: var(--muted); background: var(--surface-2); border-radius: 8px; margin-top: 12px; }
+
+  .checklist { list-style: none; padding: 0; margin: 8px 0 0; display: flex; flex-direction: column; gap: 6px; }
+  .checklist li { display: flex; gap: 8px; align-items: flex-start; }
+  .checklist .ic { flex: 0 0 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: .75rem; font-weight: 700; }
+  .checklist .ok .ic { background: var(--ok-soft); color: var(--ok); }
+  .checklist .todo .ic { background: var(--bad-soft); color: var(--bad); }
+  .checklist .warn .ic { background: var(--warn-soft); color: var(--warn); }
+  .final-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  #btnSubmit { min-width: 220px; }
+
+  @media (max-width: 960px) {
+    .sr { grid-template-columns: 1fr 1fr; }
+    .sr .act { flex-direction: row; grid-column: 1 / -1; }
+  }
+  @media (max-width: 640px) {
+    .sr { grid-template-columns: 1fr; }
+    .final-grid { grid-template-columns: 1fr; }
+    .zone-head { padding: 12px; } .zone-body { padding: 0 12px 12px; }
+    .zone-actions .btn { flex: 1; }
+    #btnSubmit { width: 100%; }
+  }
+</style>
+{% endblock %}
+{% block content %}
+<div id="app">
+  <section class="card">
+    <div class="tso-head">
+      <div>
+        <h1 id="tName">Territory review</h1>
+        <div class="muted small" id="tMeta"></div>
+      </div>
+      <div class="row">
+        <span id="tStatus"></span>
+        <label class="date-pick">Report date<select id="dateSel"></select></label>
+      </div>
+    </div>
+    <div id="lockBanner"></div>
+    <div class="grid tso-stats" id="stats"></div>
+  </section>
+
+  <div class="toolbar">
+    <input type="search" id="search" placeholder="Search SR name, ID, route or AMO…" aria-label="Search">
+    <label class="chk"><input type="checkbox" id="onlyPending"> Only pending</label>
+    <button class="btn btn-ghost btn-sm" type="button" id="btnExpand">Expand all</button>
+    <button class="btn btn-ghost btn-sm" type="button" id="btnCollapse">Collapse all</button>
+  </div>
+
+  <div id="zones"><div class="skeleton">Loading…</div></div>
+
+  <section class="card" id="finalCard">
+    <div class="card-head"><h2>TSO photo &amp; final submission</h2><span id="finalBadge"></span></div>
+    <div class="final-grid">
+      <div>
+        <div class="lbl muted small" style="font-weight:600;margin-bottom:6px">Your photo(s) from the meeting / field visit</div>
+        <div id="tsoUploader"></div>
+      </div>
+      <div>
+        <label>Overall remarks (optional)<textarea id="tsoRemarks" maxlength="2000" placeholder="Anything the check-back team should know about today"></textarea></label>
+        <div class="saved" id="remarksSaved"></div>
+      </div>
+    </div>
+    <h3 style="margin-top:14px">Before you submit</h3>
+    <ul class="checklist" id="checklist"></ul>
+    <div class="row-end"><button class="btn btn-primary hidden" type="button" id="btnSubmit">Submit territory to check-back team</button></div>
+  </section>
+</div>
+
+<dialog id="returnDialog" class="modal"><form method="dialog" id="returnForm">
+  <h3>Return to AMO</h3>
+  <p class="muted small" id="returnWho"></p>
+  <label>Reason / what to fix (required)<textarea name="remarks" required maxlength="2000"></textarea></label>
+  <div class="row-end"><button class="btn btn-ghost" value="cancel" formnovalidate type="submit">Cancel</button>
+    <button class="btn btn-bad" type="button" id="returnOk">Return report</button></div>
+</form></dialog>
+
+<dialog id="submitDialog" class="modal"><form method="dialog">
+  <h3>Submit territory?</h3>
+  <div class="body" id="submitBody"></div>
+  <div class="row-end"><button class="btn btn-ghost" value="cancel" type="submit">Cancel</button>
+    <button class="btn btn-primary" type="button" id="submitOk">Yes, submit</button></div>
+</form></dialog>
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/tso.js?v={{ v }}"></script>
+{% endblock %}

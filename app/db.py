@@ -21,7 +21,7 @@ if _url.startswith("sqlite"):
         cur.execute("PRAGMA foreign_keys=ON")
         cur.close()
 else:
-    engine = create_engine(_url, pool_pre_ping=True, pool_size=10, max_overflow=20, pool_recycle=1800)
+    engine = create_engine(_url, pool_pre_ping=True, pool_size=settings.DB_POOL_SIZE, max_overflow=settings.DB_MAX_OVERFLOW, pool_timeout=30, pool_recycle=1800)
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 

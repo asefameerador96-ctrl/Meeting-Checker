@@ -130,3 +130,13 @@ bumps session_version), activate/deactivate, and a link to the checker portal. `
 - Performance: dashboard over ~7k assignments per date must respond < 1s: use a few grouped queries, not N+1.
 - Security: role checks on every endpoint; TSO/AMO scoped to own territory/zone; escape all user text in the DOM (`esc`).
 - No external JS other than Chart.js from cdnjs. Must work on mobile (360px wide) and desktop.
+
+## E. Retention & scale (added requirement)
+- **Only the last 3 days (today, yesterday, day before; `RETENTION_DAYS`) can be viewed, checked or exported.** Every date-taking endpoint in every
+  portal must call `services.ensure_viewable_date(d)` (AMO/TSO editing already goes through `ensure_editable_date`, which calls it), and every
+  date selector must offer only `services.viewable_dates()` (return it as `viewable_dates` in the GET payloads; checker date input min/max accordingly).
+- Photos older than the window are deleted automatically by `app/purge.py` (background thread, hourly) plus an Azure Blob lifecycle rule.
+  Text records stay in the DB but are not reachable through the UI.
+- Load: all ~1,350 users may upload at the same time (~20k photos/day, bursts of 10–20 uploads/s). The upload endpoint is a sync `def`
+  (runs in the threadpool, Pillow off the event loop). Azure: autoscaling App Service plan (P1v3, 2→8 instances), PostgreSQL General Purpose,
+  connection pool sized per worker (`DB_POOL_SIZE`/`DB_MAX_OVERFLOW`) so instances × workers × pool < Postgres max_connections.
