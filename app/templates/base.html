@@ -3,15 +3,23 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% block title %}Pre-Plan Follow-Up Portal{% endblock %}</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%231f5fa8'/><path d='M9 17l5 5 9-11' stroke='white' stroke-width='3.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+<title>{% block title %}Meeting Checker · Pre-Plan Follow-Up{% endblock %}</title>
+<link rel="icon" href="/static/img/favicon.ico?v={{ v }}" sizes="any">
+<link rel="icon" type="image/png" sizes="192x192" href="/static/img/icon-192.png?v={{ v }}">
+<link rel="apple-touch-icon" href="/static/img/icon-180.png?v={{ v }}">
+<link rel="manifest" href="/static/manifest.webmanifest?v={{ v }}">
+<meta name="theme-color" content="#1f5fa8">
+<meta name="application-name" content="Meeting Checker">
+<meta name="apple-mobile-web-app-title" content="Meeting Checker">
 <link rel="stylesheet" href="/static/css/app.css?v={{ v }}">
 {% block head %}{% endblock %}
 </head>
 <body class="{% block bodyclass %}{% endblock %}">
 {% if user %}
 <header class="topbar">
-  <div class="brand"><span class="logo">✓</span><span>Pre-Plan Follow-Up</span>
+  <div class="brand">
+    <a class="brand-link" href="/" aria-label="Meeting Checker home"><img class="brand-mark" src="/static/img/mark-white.png?v={{ v }}" alt="" width="34" height="34"><span class="brand-name">Meeting Checker</span></a>
+    <span class="brand-sub">Pre-Plan Follow-Up</span>
     <span class="role-chip role-{{ user.role }}">{{ user.role|upper }}</span></div>
   <div class="who">
     <span class="who-name" title="{{ user.username }}">{{ user.display_name or user.username }}</span>

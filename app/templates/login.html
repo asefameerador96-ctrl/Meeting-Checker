@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block title %}Sign in · Pre-Plan Follow-Up Portal{% endblock %}
+{% block title %}Sign in · Meeting Checker{% endblock %}
 {% block bodyclass %}login-body{% endblock %}
 {% block content %}
 <div class="login-wrap">
   <form class="card login-card" id="loginForm" autocomplete="on">
-    <div class="login-logo">✓</div>
+    <img class="login-logo" src="/static/img/logo.png?v={{ v }}" alt="Meeting Checker" width="240" height="121">
     <h1>Pre-Plan Follow-Up Portal</h1>
     <p class="muted">AMO · TSO · Check-back team</p>
     <label>Username<input name="username" required autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="e.g. amo5001"></label>

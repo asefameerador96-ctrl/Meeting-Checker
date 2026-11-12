@@ -43,11 +43,18 @@ async def lifespan(_app):
     yield
 
 
-app = FastAPI(title="Pre-Plan Follow-Up Portal", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
+app = FastAPI(title="Meeting Checker", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
 
 
 @app.middleware("http")
 async def csrf_and_headers(request: Request, call_next):
+    canon = settings.CANONICAL_HOST
+    if canon and request.url.path != "/healthz":
+        host = (request.headers.get("host") or "").split(":")[0].lower()
+        if host and host != canon and host not in ("localhost", "127.0.0.1"):
+            q = ("?" + request.url.query) if request.url.query else ""
+            return RedirectResponse(f"https://{canon}{request.url.path}{q}",
+                                    status_code=308 if request.method not in ("GET", "HEAD") else 301)
     # Mutating API calls must carry a custom header (blocked cross-site without CORS preflight).
     if request.url.path.startswith("/api/") and request.method not in ("GET", "HEAD", "OPTIONS"):
         if request.headers.get("x-requested-with") != "fetch":
@@ -101,6 +108,13 @@ def login_page(request: Request, user: User | None = Depends(current_user_option
     if user:
         return RedirectResponse(HOME.get(user.role, "/"), status_code=302)
     return templates.TemplateResponse(request, "login.html", {"user": None, "v": STATIC_VERSION})
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    from fastapi.responses import FileResponse
+    return FileResponse(APP_DIR / "static" / "img" / "favicon.ico", media_type="image/x-icon",
+                        headers={"Cache-Control": "public, max-age=604800"})
 
 
 @app.get("/healthz", include_in_schema=False)

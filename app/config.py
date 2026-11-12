@@ -32,6 +32,9 @@ class Settings:
     PURGE_INTERVAL_MINUTES = int(os.getenv("PURGE_INTERVAL_MINUTES", "60"))
     DB_POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "5"))
     DB_MAX_OVERFLOW = int(os.getenv("DB_MAX_OVERFLOW", "5"))
+    # Custom domain, e.g. "meetingchecker.com". When set, requests for any other host
+    # (www., *.azurewebsites.net) are 301-redirected to https://<CANONICAL_HOST>.
+    CANONICAL_HOST = os.getenv("CANONICAL_HOST", "").strip().lower()
     COOKIE_SECURE = _bool(os.getenv("COOKIE_SECURE"), default=False)
     SEED_ON_STARTUP = _bool(os.getenv("SEED_ON_STARTUP"), default=True)
     SESSION_MAX_AGE = int(os.getenv("SESSION_MAX_AGE", str(14 * 24 * 3600)))

@@ -15,7 +15,10 @@ h1 { font-size: 1.35rem; margin: 0 0 .25rem; } h2 { font-size: 1.15rem; margin: 
 .topbar { position: sticky; top: 0; z-index: 20; display: flex; justify-content: space-between; align-items: center; gap: 12px;
   background: var(--primary); color: #fff; padding: 10px 16px; box-shadow: var(--shadow); flex-wrap: wrap; }
 .brand { display: flex; align-items: center; gap: 8px; font-weight: 600; }
-.logo { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 7px; background: rgba(255,255,255,.18); }
+.brand-link { display: inline-flex; align-items: center; gap: 8px; flex: none; color: #fff; text-decoration: none; }
+.brand-mark { display: block; width: 34px; height: 34px; }
+.brand-name { font-weight: 700; font-size: 1.05rem; letter-spacing: -.01em; white-space: nowrap; }
+.brand-sub { padding-left: 10px; border-left: 1px solid rgba(255,255,255,.35); opacity: .95; }
 .role-chip { font-size: .7rem; padding: 2px 8px; border-radius: 99px; background: rgba(255,255,255,.2); letter-spacing: .04em; }
 .who { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .who-name { max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .95; font-size: .9rem; }
@@ -110,7 +113,8 @@ dialog.lightbox[open] { display: grid; place-items: center; }
 .login-body { background: linear-gradient(160deg, #1f5fa8 0%, #183f6e 100%); min-height: 100vh; }
 .login-wrap { min-height: calc(100vh - 32px); display: grid; place-items: center; }
 .login-card { width: min(100%, 380px); display: flex; flex-direction: column; gap: 12px; padding: 26px; }
-.login-logo { width: 48px; height: 48px; border-radius: 12px; background: var(--primary); color: #fff; display: grid; place-items: center; font-size: 26px; font-weight: 700; }
+.login-logo { width: 200px; height: auto; align-self: center; margin: 4px 0 8px; }
+.login-card h1, .login-card > .muted { text-align: center; }
 
 .sticky-actions { position: sticky; bottom: 0; background: linear-gradient(to top, var(--bg) 70%, transparent); padding: 14px 0 6px; z-index: 5; }
 .hidden { display: none !important; }
@@ -124,11 +128,12 @@ dialog.lightbox[open] { display: grid; place-items: center; }
   /* keep the sticky header on one row on phones */
   .topbar { flex-wrap: nowrap; padding: 8px 12px; gap: 8px; }
   .brand { gap: 6px; min-width: 0; font-size: .9rem; }
-  .brand > span:nth-child(2) { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-  .logo { width: 24px; height: 24px; flex: none; }
+  .brand-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; padding-left: 8px; }
+  .brand-name { display: none; }
+  .brand-mark { width: 30px; height: 30px; }
   .role-chip { flex: none; padding: 2px 6px; }
   .who { flex: none; gap: 4px; }
   .topbar .btn-sm { padding: 4px 8px; font-size: .8rem; }
 }
-@media (max-width: 360px) { .brand > span:nth-child(2) { display: none; } }
+@media (max-width: 360px) { .brand-sub { display: none; } }
 @media print { .topbar, .sticky-actions, .btn { display: none !important; } }
