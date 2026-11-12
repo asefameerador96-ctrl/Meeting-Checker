@@ -37,7 +37,7 @@ class Settings:
     CANONICAL_HOST = os.getenv("CANONICAL_HOST", "").strip().lower()
     COOKIE_SECURE = _bool(os.getenv("COOKIE_SECURE"), default=False)
     SEED_ON_STARTUP = _bool(os.getenv("SEED_ON_STARTUP"), default=True)
-    SESSION_MAX_AGE = int(os.getenv("SESSION_MAX_AGE", str(14 * 24 * 3600)))
+    SESSION_MAX_AGE = int(os.getenv("SESSION_MAX_AGE", str(24 * 3600)))  # sign-in lasts 24 hours
 
 
 settings = Settings()

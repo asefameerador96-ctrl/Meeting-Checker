@@ -163,3 +163,12 @@ class AuditLog(Base):
     username: Mapped[str] = mapped_column(String(60))
     action: Mapped[str] = mapped_column(String(60))
     detail: Mapped[str] = mapped_column(Text, default="")
+
+
+class LoginFailure(Base):
+    """Failed sign-ins, shared by all web instances, for brute-force throttling."""
+    __tablename__ = "login_failures"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    username: Mapped[str] = mapped_column(String(60), index=True)
+    ip: Mapped[str] = mapped_column(String(64), index=True)

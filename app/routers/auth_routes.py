@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..auth import (audit, current_user, hash_password, login_user, throttle_check, throttle_fail,
+from ..auth import (audit, client_ip, current_user, hash_password, login_user, throttle_check, throttle_clear, throttle_fail,
                     verify_password)
 from ..db import get_db
 from ..models import Territory, User, Zone
@@ -23,12 +23,14 @@ class LoginIn(BaseModel):
 @router.post("/login")
 def login(body: LoginIn, request: Request, db: Session = Depends(get_db)):
     uname = body.username.strip().lower()
-    key = f"{request.client.host if request.client else '-'}:{uname}"
-    throttle_check(key)
+    ip = client_ip(request)
+    throttle_check(db, uname, ip)
     user = db.scalar(select(User).where(User.username == uname))
     if not user or not user.active or not verify_password(body.password, user.password_hash):
-        throttle_fail(key)
+        audit(db, uname or '-', 'login_failed', f'ip={ip}')
+        throttle_fail(db, uname, ip)
         raise HTTPException(401, "Invalid username or password")
+    throttle_clear(db, uname)
     user.last_login_at = datetime.now(timezone.utc)
     audit(db, user, "login")
     db.commit()

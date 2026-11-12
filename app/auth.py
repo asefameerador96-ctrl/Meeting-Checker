@@ -1,13 +1,12 @@
-import time
-from collections import defaultdict, deque
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import bcrypt
 from fastapi import Depends, HTTPException, Request
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from .db import get_db
-from .models import AuditLog, User
+from .models import AuditLog, LoginFailure, User
 
 
 def hash_password(pw: str) -> str:
@@ -21,21 +20,42 @@ def verify_password(pw: str, h: str) -> bool:
         return False
 
 
-# naive in-memory login throttle: max 10 failures per (ip, username) per 10 minutes
-_fails: dict[str, deque] = defaultdict(deque)
+# Brute-force protection shared by all instances (stored in the database):
+#   - max 8 failed attempts per username in 15 minutes (account temporarily locked)
+#   - max 40 failed attempts per client IP in 15 minutes
+WINDOW = timedelta(minutes=15)
+MAX_PER_USER = 8
+MAX_PER_IP = 40
 
 
-def throttle_check(key: str):
-    q = _fails[key]
-    now = time.time()
-    while q and now - q[0] > 600:
-        q.popleft()
-    if len(q) >= 10:
-        raise HTTPException(429, "Too many failed attempts. Try again in a few minutes.")
+def throttle_check(db: Session, username: str, ip: str):
+    since = datetime.now(timezone.utc) - WINDOW
+    n_user = db.scalar(select(func.count()).select_from(LoginFailure)
+                       .where(LoginFailure.username == username, LoginFailure.at >= since))
+    n_ip = db.scalar(select(func.count()).select_from(LoginFailure)
+                     .where(LoginFailure.ip == ip, LoginFailure.at >= since))
+    if n_user >= MAX_PER_USER or n_ip >= MAX_PER_IP:
+        raise HTTPException(429, "Too many failed attempts. Please wait 15 minutes and try again.")
 
 
-def throttle_fail(key: str):
-    _fails[key].append(time.time())
+def throttle_fail(db: Session, username: str, ip: str):
+    db.add(LoginFailure(username=username[:60], ip=ip[:64], at=datetime.now(timezone.utc)))
+    # housekeeping: drop entries older than a day
+    db.execute(delete(LoginFailure).where(LoginFailure.at < datetime.now(timezone.utc) - timedelta(days=1)))
+    db.commit()
+
+
+def throttle_clear(db: Session, username: str):
+    db.execute(delete(LoginFailure).where(LoginFailure.username == username))
+
+
+def client_ip(request: Request) -> str:
+    # Azure App Service front ends put the real client first in X-Forwarded-For ("ip:port, ...")
+    xff = request.headers.get("x-forwarded-for", "")
+    ip = xff.split(",")[0].strip() if xff else (request.client.host if request.client else "-")
+    if ip.count(":") == 1:  # strip ":port" from IPv4
+        ip = ip.split(":")[0]
+    return ip or "-"
 
 
 def login_user(request: Request, user: User):

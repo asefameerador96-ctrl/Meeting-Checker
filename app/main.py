@@ -1,3 +1,4 @@
+from datetime import datetime
 import hashlib
 import logging
 from contextlib import asynccontextmanager
@@ -46,6 +47,12 @@ async def lifespan(_app):
 app = FastAPI(title="Meeting Checker", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
 
 
+CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; "
+       "style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.blob.core.windows.net; "
+       "connect-src 'self'; font-src 'self' data:; object-src 'none'; base-uri 'self'; "
+       "form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests")
+
+
 @app.middleware("http")
 async def csrf_and_headers(request: Request, call_next):
     canon = settings.CANONICAL_HOST
@@ -63,6 +70,11 @@ async def csrf_and_headers(request: Request, call_next):
     resp.headers.setdefault("X-Content-Type-Options", "nosniff")
     resp.headers.setdefault("X-Frame-Options", "DENY")
     resp.headers.setdefault("Referrer-Policy", "same-origin")
+    resp.headers.setdefault("Permissions-Policy", "camera=(self), microphone=(), geolocation=(), payment=()")
+    resp.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
+    resp.headers.setdefault("Content-Security-Policy", CSP)
+    if request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https" or settings.COOKIE_SECURE:
+        resp.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
     if request.url.path.startswith("/api/") and "cache-control" not in resp.headers:
         resp.headers["Cache-Control"] = "no-store"
     return resp
@@ -107,7 +119,7 @@ def root(user: User | None = Depends(current_user_optional)):
 def login_page(request: Request, user: User | None = Depends(current_user_optional)):
     if user:
         return RedirectResponse(HOME.get(user.role, "/"), status_code=302)
-    return templates.TemplateResponse(request, "login.html", {"user": None, "v": STATIC_VERSION})
+    return templates.TemplateResponse(request, "login.html", {"user": None, "v": STATIC_VERSION, "year": datetime.now().year})
 
 
 @app.get("/favicon.ico", include_in_schema=False)

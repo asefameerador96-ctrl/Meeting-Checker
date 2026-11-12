@@ -15,7 +15,7 @@ RG="${RESOURCE_GROUP:-rg-preplan-portal}"
 APP="${APP_NAME:?APP_NAME not set}"
 
 say() { printf '\n==> %s\n' "$*"; }
-resolve() { curl -s "https://dns.google/resolve?name=$1&type=$2" | python3 -c "import json,sys;print(' '.join(a['data'] for a in json.load(sys.stdin).get('Answer',[])))"; }
+resolve() { curl -s -H "accept: application/dns-json" "https://cloudflare-dns.com/dns-query?name=$1&type=$2" | python3 -c "import json,sys;print(' '.join(a['data'] for a in json.load(sys.stdin).get('Answer',[])))"; }
 
 say "Checking DNS delegation of $DOMAIN"
 ns="$(resolve "$DOMAIN" NS)"
@@ -34,11 +34,18 @@ for host in "$DOMAIN" "www.$DOMAIN"; do
   if ! az webapp config hostname list -g "$RG" --webapp-name "$APP" --query "[].name" -o tsv | grep -qx "$host"; then
     az webapp config hostname add -g "$RG" --webapp-name "$APP" --hostname "$host" -o none
   fi
-  thumb="$(az webapp config ssl list -g "$RG" --query "[?subjectName=='$host'].thumbprint | [0]" -o tsv)"
+  thumb="$(az webapp config ssl list -g "$RG" --query "[?name=='$host' || subjectName=='$host'].thumbprint | [0]" -o tsv)"
   if [ -z "$thumb" ]; then
     echo "    creating free managed certificate (can take a few minutes)"
-    thumb="$(az webapp config ssl create -g "$RG" -n "$APP" --hostname "$host" --query thumbprint -o tsv)"
+    az webapp config ssl create -g "$RG" -n "$APP" --hostname "$host" -o none 2>/dev/null || true
   fi
+  # managed certificate issuance is asynchronous: wait for it (up to ~15 min)
+  for i in $(seq 1 90); do
+    [ -n "$thumb" ] && break
+    sleep 10
+    thumb="$(az webapp config ssl list -g "$RG" --query "[?name=='$host' || subjectName=='$host'].thumbprint | [0]" -o tsv)"
+  done
+  [ -n "$thumb" ] || { echo "    certificate for $host not issued yet; re-run this script later"; exit 3; }
   az webapp config ssl bind -g "$RG" -n "$APP" --certificate-thumbprint "$thumb" --ssl-type SNI -o none
   echo "    https://$host bound (cert $thumb)"
 done
