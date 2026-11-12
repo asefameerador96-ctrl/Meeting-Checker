@@ -201,3 +201,41 @@ def hierarchy_json(db: Session) -> dict:
         out.setdefault(t.wing, {}).setdefault(t.division, []).append({"code": t.code, "name": t.name})
     return {"wings": [{"name": w, "divisions": [{"name": dv, "territories": ts} for dv, ts in divs.items()]}
                       for w, divs in out.items()]}
+
+
+# ---- checker wing scope ----
+def parse_scope_wings(raw: str | None) -> list[str] | None:
+    """users.scope_wings -> list of wing names, or None for "all wings" (NULL = never assigned, '' = all)."""
+    if raw is None:
+        return None
+    raw = raw.strip()
+    if not raw:
+        return None
+    if raw.startswith("["):
+        import json
+        try:
+            vals = json.loads(raw)
+        except ValueError:
+            vals = []
+        if not isinstance(vals, list):
+            vals = []
+    else:
+        vals = raw.split("|")
+    out: list[str] = []
+    for v in vals:
+        v = str(v).strip()
+        if v and v not in out:
+            out.append(v)
+    return out  # may be [] (malformed): no wing access at all, never silently "all"
+
+
+def allowed_wings(user) -> list[str] | None:
+    """Wings a user may see in the mother portal: None = all (admin, or a checker without a restriction)."""
+    if getattr(user, "role", None) != "checker":
+        return None
+    return parse_scope_wings(user.scope_wings)
+
+
+def can_see_wing(user, wing: str | None) -> bool:
+    w = allowed_wings(user)
+    return w is None or (wing is not None and wing in w)

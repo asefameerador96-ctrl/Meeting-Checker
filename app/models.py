@@ -67,6 +67,9 @@ class User(Base):
     territory_code: Mapped[int | None] = mapped_column(ForeignKey("territories.code"), nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     session_version: Mapped[int] = mapped_column(Integer, default=1)
+    # checker wing scope: NULL = never assigned (treated as all wings), '' = all wings,
+    # otherwise a JSON list (or '|' separated) of wing names. Ignored for other roles.
+    scope_wings: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
@@ -152,6 +155,9 @@ class Image(Base):
     duplicate_of_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     old_photo: Mapped[bool] = mapped_column(Boolean, default=False)
     uploaded_by: Mapped[str] = mapped_column(String(60))
+    # how the photo was captured: "camera" (in-app live camera) | "capture_input" (camera file input fallback);
+    # NULL for photos uploaded before camera-only capture existed. Added by seed._migrate_images_source().
+    source: Mapped[str | None] = mapped_column(String(20), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     __table_args__ = (Index("ix_images_scope", "report_date", "zone_code", "sr_id"),)
 

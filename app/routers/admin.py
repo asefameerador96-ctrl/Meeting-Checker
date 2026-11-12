@@ -4,23 +4,26 @@ GET  /api/admin/users?q=&role=&active=&offset=&limit=   list/search users (+ per
 GET  /api/admin/summary                                 user counts by role (total/active/never logged in)
 GET  /api/admin/users.csv?q=&role=&active=              CSV export of usernames + hierarchy (never passwords)
 POST /api/admin/users/{username}/reset-password         new random password, returned once; logs the user out
-PUT  /api/admin/users/{username}  {active}              activate / deactivate (logs the user out)
+PUT  /api/admin/users/{username}  {active?, scope_wings?} activate / deactivate (logs the user out);
+                                                        checkers: scope_wings = [wing, ...] or null (= all wings)
+GET  /api/admin/wings                                   wing names (for the checker wing editor)
 """
 import csv
 import io
+import json
 import secrets
 import string
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 
 from ..auth import audit, hash_password, require_role
 from ..db import get_db
 from ..models import Territory, User, Zone
-from ..services import TZ, today
+from ..services import TZ, parse_scope_wings, today
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -63,6 +66,7 @@ def _user_json(u: User, z: Zone | None, t: Territory | None) -> dict:
             "zone_code": u.zone_code, "zone_name": z.name if z else None,
             "territory_code": t.code if t else None, "territory_name": t.name if t else None,
             "division": t.division if t else None, "wing": t.wing if t else None,
+            "scope_wings": parse_scope_wings(u.scope_wings) if u.role == "checker" else None,  # None = all wings
             "last_login_at": u.last_login_at.isoformat() if u.last_login_at else None,
             "created_at": u.created_at.isoformat() if u.created_at else None}
 
@@ -111,6 +115,13 @@ def _csv_cell(v) -> str:
     return "'" + s if s[:1] in ("=", "+", "-", "@", "\t", "\r") else s
 
 
+def _checker_wings_text(u: User) -> str:
+    if u.role != "checker":
+        return ""
+    w = parse_scope_wings(u.scope_wings)
+    return "All wings" if w is None else "; ".join(w)
+
+
 @router.get("/users.csv")
 def export_users_csv(q: str = "", role: str = "", active: str = "",
                      admin: User = Depends(require_role("admin")), db: Session = Depends(get_db)):
@@ -124,7 +135,7 @@ def export_users_csv(q: str = "", role: str = "", active: str = "",
     for u, z, t in db.execute(stmt):
         last = u.last_login_at.astimezone(TZ).strftime("%Y-%m-%d %H:%M") if u.last_login_at else ""
         w.writerow([_csv_cell(x) for x in (u.username, u.role, u.display_name, "yes" if u.active else "no",
-                                           t.wing if t else "", t.division if t else "", t.code if t else "",
+                                           t.wing if t else _checker_wings_text(u), t.division if t else "", t.code if t else "",
                                            t.name if t else "", u.zone_code or "", z.name if z else "", last)])
         n += 1
     audit(db, admin, "admin_export_users", f"rows={n} q={q!r} role={role!r} active={active!r}")
@@ -148,17 +159,47 @@ def reset_password(username: str, admin: User = Depends(require_role("admin")), 
     return {"ok": True, "username": u.username, "password": pw}
 
 
+def _all_wings(db: Session) -> list[str]:
+    return list(db.scalars(select(Territory.wing).distinct().order_by(Territory.wing)))
+
+
+@router.get("/wings")
+def wings(admin: User = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    return {"wings": _all_wings(db)}
+
+
 class UserUpdateIn(BaseModel):
-    active: bool
+    active: bool | None = None
+    # checkers only. A list of wing names restricts the checker to them; null (or every wing) = all wings.
+    # Omit the field to leave it unchanged.
+    scope_wings: list[str] | None = Field(default=None, max_length=50)
 
 
 @router.put("/users/{username}")
 def update_user(username: str, body: UserUpdateIn, admin: User = Depends(require_role("admin")),
                 db: Session = Depends(get_db)):
     u = _get_user(db, username)
-    if u.id == admin.id and not body.active:
+    if body.active is False and u.id == admin.id:
         raise HTTPException(400, "You cannot deactivate your own account")
-    if u.active != body.active:
+    if "scope_wings" in body.model_fields_set:
+        if u.role != "checker":
+            raise HTTPException(400, "Wings can only be assigned to checker accounts")
+        if body.scope_wings is None:
+            new = ""
+        else:
+            valid = _all_wings(db)
+            picked = list(dict.fromkeys(w.strip() for w in body.scope_wings if w and w.strip()))
+            unknown = [w for w in picked if w not in valid]
+            if unknown:
+                raise HTTPException(400, f"Unknown wing(s): {', '.join(unknown)}")
+            if not picked:
+                raise HTTPException(400, "Select at least one wing, or All wings")
+            new = "" if set(picked) == set(valid) else json.dumps([w for w in valid if w in picked])
+        if u.scope_wings != new:
+            u.scope_wings = new  # read on every request, so it takes effect immediately
+            audit(db, admin, "admin_set_wings", f"user={u.username} wings={new or 'all'}")
+            db.commit()
+    if body.active is not None and u.active != body.active:
         u.active = body.active
         if not body.active:
             u.session_version += 1

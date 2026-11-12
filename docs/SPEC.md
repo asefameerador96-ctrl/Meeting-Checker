@@ -20,8 +20,13 @@ Excel export: openpyxl (server side). Timezone Asia/Dhaka (`services.today()`).
 ## Already implemented (do NOT rewrite; extend if strictly needed, keep backwards compatible)
 - `app/models.py`: all tables. `app/services.py`: helpers (date rules, get-or-create, JSON serialisers, permission asserts, `hierarchy_json`).
 - `app/auth.py`: `require_role(...)`, `current_user`, `audit(...)`.
-- `app/routers/images.py`: `POST /api/images` (multipart: file, kind=meeting|sr|tso, date, sr_id), `GET /api/images/{id}/full|thumb`, `DELETE /api/images/{id}`.
+- `app/routers/images.py`: `POST /api/images` (multipart: file, kind=meeting|sr|tso, date, sr_id, source=camera|capture_input), `GET /api/images/{id}/full|thumb`, `DELETE /api/images/{id}`.
   Uploading an `sr` image resets that SR entry's `tso_status` to `pending`. Images flagged `duplicate` (re-used photo) / `old_photo` (EXIF older than 2 days).
+  **Camera only**: photos are taken live, there is no gallery picker. The Uploader's "Take ... photo" tile opens a full-screen in-page camera
+  (`getUserMedia`, rear camera, Android-first); every shutter press uploads the frame immediately (JPEG ≤1920px) and the camera stays open
+  for the next shot until Done / back. Fallback only without getUserMedia: `<input type=file accept=image/* capture=environment>` (no `multiple`).
+  The server stores `images.source` and, with `CAMERA_ONLY=true` (default), rejects uploads without source camera|capture_input (400).
+  This enforces the app path only; the field is client-supplied.
 - `app/routers/auth_routes.py`: login/logout/me/change-password.
 - `app/main.py`: pages `/amo`, `/tso`, `/checker` (checker+admin), `/admin` render `amo.html`, `tso.html`, `checker.html`, `admin.html`
   which must `{% extends "base.html" %}` and fill `{% block content %}` and `{% block scripts %}`.
@@ -63,8 +68,8 @@ API (all `require_role("amo")`, zone = `user.zone_code`):
 UI:
 - Header card: zone, territory, date selector (editable_dates), status badge, lock banner (submitted / returned with TSO note / territory submitted).
 - Card "Pre-plan meeting": location (default territory name), meeting held Yes/No radios, time (input type=time) or reason, SR count present,
-  vacancy remarks, meeting photo Uploader(kind=meeting, max 4). Auto-save on change (debounced) with a small "Saved ✓" indicator.
-- Card per SR (list): SR name + id, routes, Uploader(kind=sr, sr_id, max 6, label "Add plan photos"), "Remarks" textarea (auto-save),
+  vacancy remarks, meeting photo Uploader(kind=meeting, max 4, label "Take meeting photo"). Auto-save on change (debounced) with a small "Saved ✓" indicator.
+- Card per SR (list): SR name + id, routes, Uploader(kind=sr, sr_id, max 6, label "Take plan photo" — opens the live camera), "Remarks" textarea (auto-save),
   badges: image count, TSO status (approved/pending), TSO remark if any. Show a progress summary "X of Y SRs have photos" with a progress bar at the top; a search box to filter SRs.
 - Sticky "Submit to TSO" button at the bottom; disabled while any uploader is busy; on validation failure scroll to & highlight first offending SR.
 - When locked: everything read-only (Uploader editable:false).
@@ -92,6 +97,10 @@ UI:
 
 ## C. Checker (mother) portal: `app/routers/checker.py`, `app/templates/checker.html`, `app/static/js/checker.js`
 `require_role("checker","admin")`. Two tabs.
+**Wing scope**: `users.scope_wings` (JSON list; NULL/'' = all wings) limits a checker to their wing(s); default checker01..05 = one wing each
+(Chittagong North, Chittagong South, Noakhali, Cumilla, Sylhet), checker06..10 = all; the admin edits it. Every checker endpoint (hierarchy,
+territory, dashboard, exports, PUT sr/zone, check-all, images) is clipped to those wings; asking for another wing, division or territory is 403
+(images 404).
 Only data of territories whose TerritoryReport is `submitted` counts as uploaded/visible (that is the "reflect to the mother portal" rule).
 - `GET /api/checker/hierarchy` → `services.hierarchy_json(db)`.
 - **Tab 1 "Territory details"**: filters Date + Wing → Division → Territory (cascading selects). `GET /api/checker/territory?date=&territory_code=` →
@@ -108,10 +117,11 @@ Only data of territories whose TerritoryReport is `submitted` counts as uploaded
 - **Tab 2 "Dashboard"**: filters Date (required) + optional Wing/Division/Territory scope. `GET /api/checker/dashboard?date=&wing=&division=&territory_code=` →
   `{scope, totals:{total_srs, uploaded, not_uploaded, checked, uploaded_not_checked, pct_uploaded, pct_not_uploaded, pct_checked,
      zones_total, zones_meeting_held, territories_total, territories_submitted, check_pass, check_fail, pass_pct},
-    pie:{labels:["Images not uploaded","Images uploaded (not yet checked)","Checked by checker"], values:[...], pct:[...]},
-    by_division:[{wing, division, total_srs, srs_with_images, checked}] , by_wing:[...]}`
-  Definitions: total_srs = assignments in scope. uploaded = assignments with ≥1 sr image on that date in a submitted territory. checked = uploaded & checked.
-  Pie slices are mutually exclusive and sum to total_srs: not_uploaded, uploaded_not_checked, checked; show % in labels/tooltip.
+    pie:{labels:["Images not uploaded","Images uploaded (not yet checked)","Checked by checker","Incorrect photo"], values:[...], pct:[...]},
+    by_division:[{wing, division, total_srs, srs_with_images, checked, incorrect, checked_total}] , by_wing:[...]}`
+  Definitions: total_srs = assignments in scope. uploaded = assignments with ≥1 sr image on that date in a submitted territory. checked = uploaded & checked & Correct photos? yes/blank;
+  incorrect = uploaded & checked & Correct photos? = No; checked_total = checked + incorrect.
+  Pie slices are mutually exclusive and sum to total_srs: not_uploaded, uploaded_not_checked, checked, incorrect; show % in labels/tooltip.
   **Bar chart: per division: Count of SR vs SRs with images uploaded** (grouped bars) for the scope (all divisions when no scope). Horizontal bars if >12 divisions.
   KPI tiles (from plan): "X of Y locations held the pre-plan meeting" (zones with meeting_held=true in submitted territories / all zones),
   "X of Y SRs with an outlet-wise pre-plan" (uploaded/total), "Checked", "Pass %" (checker_valid yes / (yes+no)), "Territories submitted X of Y".

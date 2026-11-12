@@ -4,7 +4,7 @@
 <style>
   .viz-root {
     --surface-1: #ffffff; --ink-2: #52514e; --ink-muted: #898781; --grid: #e1e0d9; --axis: #c3c2b7;
-    --s-missing: #eb6834; --s-uploaded: #1baf7a; --s-checked: #2a78d6; --s-total: #6250d6;
+    --s-missing: #eb6834; --s-uploaded: #1baf7a; --s-checked: #2a78d6; --s-incorrect: #b3261e; --s-total: #6250d6;
   }
   .page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
   .page-head p { margin: 0; }
@@ -89,6 +89,9 @@
   .legend .li .muted { font-variant-numeric: tabular-nums; }
   .pct-bar { display: inline-block; width: 70px; height: 6px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 99px; vertical-align: middle; margin-left: 6px; overflow: hidden; }
   .pct-bar > i { display: block; height: 100%; background: var(--s-uploaded); }
+  .div-table td.c-bad { color: var(--s-incorrect); font-weight: 700; }
+  .my-wings { margin: 4px 0 0; font-size: .9rem; }
+  .my-wings b { color: var(--primary); }
   .div-table tfoot td { font-weight: 700; background: var(--surface-2); }
   .div-table tbody tr { cursor: pointer; }
 
@@ -127,6 +130,7 @@
     <div>
       <h1>Check-back portal</h1>
       <p class="muted small">Territories appear here once their TSO has made the final submission. Only the last few days are available.</p>
+      <p class="my-wings hidden" id="myWings"></p>
     </div>
   </div>
 

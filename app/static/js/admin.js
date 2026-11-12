@@ -1,9 +1,9 @@
-/* Admin portal: user list/search, password reset, activate/deactivate. */
+/* Admin portal: user list/search, password reset, activate/deactivate, checker wing assignment. */
 (function () {
   'use strict';
   const PAGE = 50;
   const ROLE_LABEL = { amo: 'AMO', tso: 'TSO', checker: 'Checker', admin: 'Admin' };
-  const st = { q: '', role: '', active: '', offset: 0, total: 0, me: '', users: [], seq: 0 };
+  const st = { q: '', role: '', active: '', offset: 0, total: 0, me: '', users: [], seq: 0, wings: null, editing: null };
 
   function params(withPage) {
     const p = new URLSearchParams();
@@ -30,6 +30,11 @@
   function place(u) {
     if (u.role === 'amo') return `<div>${esc(u.zone_name || '')} <span class="u-sub">(${esc(u.zone_code)})</span></div><div class="u-sub">${esc(u.territory_name || '')} · ${esc(u.division || '')} · ${esc(u.wing || '')}</div>`;
     if (u.role === 'tso') return `<div>${esc(u.territory_name || '')} <span class="u-sub">(${esc(u.territory_code)})</span></div><div class="u-sub">${esc(u.division || '')} · ${esc(u.wing || '')}</div>`;
+    if (u.role === 'checker') {
+      const w = u.scope_wings;
+      return `<div class="u-wings">${w == null ? '<span class="badge">All wings</span>'
+        : w.length ? w.map(x => `<span class="badge badge-info">${esc(x)}</span>`).join(' ') : '<span class="badge badge-bad">No wing</span>'}</div>`;
+    }
     return '<span class="muted">All territories</span>';
   }
 
@@ -37,6 +42,7 @@
     const self = u.username === st.me;
     const status = u.active ? '<span class="badge badge-ok">Active</span>' : '<span class="badge badge-bad">Inactive</span>';
     const actions = self ? '<span class="u-sub">This is you</span>' : `
+      ${u.role === 'checker' ? '<button class="btn btn-sm" type="button" data-act="wings">Edit wings</button>' : ''}
       <button class="btn btn-sm" type="button" data-act="reset">Reset password</button>
       ${u.active ? '<button class="btn btn-sm btn-ghost" type="button" data-act="deactivate">Deactivate</button>'
                  : '<button class="btn btn-sm btn-ok" type="button" data-act="activate">Activate</button>'}`;
@@ -87,6 +93,7 @@
   async function act(username, action, btn) {
     const u = st.users.find(x => x.username === username); if (!u) return;
     const enc = encodeURIComponent(username);
+    if (action === 'wings') { openWings(u); return; }
     if (action === 'reset') {
       if (!confirm(`Reset the password for ${username}? They will be signed out and need the new password.`)) return;
       btn.disabled = true;
@@ -108,7 +115,44 @@
     } catch (e) { toast(e.message, 'bad'); btn.disabled = false; }
   }
 
+  /* ---- checker wing assignment ---- */
+  async function openWings(u) {
+    if (!st.wings) {
+      try { st.wings = (await api.get('/api/admin/wings')).wings; } catch (e) { toast(e.message, 'bad'); return; }
+    }
+    st.editing = u.username;
+    const all = u.scope_wings == null, sel = new Set(u.scope_wings || []);
+    qs('#wgUser').textContent = u.username;
+    qs('#wgAll').checked = all;
+    qs('#wgList').innerHTML = st.wings.map((w, i) => `<label class="wg-item"><input type="checkbox" value="${esc(w)}" id="wg${i}"${all || sel.has(w) ? ' checked' : ''}> ${esc(w)}</label>`).join('');
+    syncWings();
+    qs('#wgDlg').showModal();
+  }
+  function syncWings() {
+    const all = qs('#wgAll').checked;
+    qsa('#wgList input').forEach(c => { c.disabled = all; if (all) c.checked = true; });
+    const n = qsa('#wgList input:checked').length;
+    qs('#wgSave').disabled = !all && n === 0;
+    qs('#wgNote').textContent = all ? 'This checker sees every wing.' : n ? `${n} wing${n === 1 ? '' : 's'} selected.` : 'Select at least one wing.';
+  }
+  async function saveWings() {
+    const username = st.editing, btn = qs('#wgSave');
+    const picked = qsa('#wgList input:checked').map(c => c.value);
+    const scope_wings = qs('#wgAll').checked || picked.length === st.wings.length ? null : picked;
+    btn.disabled = true;
+    try {
+      const nu = await api.put(`/api/admin/users/${encodeURIComponent(username)}`, { scope_wings });
+      const u = st.users.find(x => x.username === username); if (u) Object.assign(u, nu);
+      qs('#wgDlg').close(); renderRows();
+      toast(`${username}: ${scope_wings ? scope_wings.join(', ') : 'all wings'}`, 'ok');
+    } catch (e) { toast(e.message, 'bad'); } finally { btn.disabled = false; }
+  }
+
   document.addEventListener('DOMContentLoaded', () => {
+    qs('#wgAll').onchange = syncWings;
+    qs('#wgList').addEventListener('change', syncWings);
+    qs('#wgSave').onclick = saveWings;
+    qs('#wgCancel').onclick = () => qs('#wgDlg').close();
     qs('#fQ').addEventListener('input', debounce(onFilter, 300));
     qs('#fRole').onchange = onFilter; qs('#fActive').onchange = onFilter;
     qs('#prevPage').onclick = () => { st.offset = Math.max(0, st.offset - PAGE); load(); };

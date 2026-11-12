@@ -135,7 +135,7 @@
     if (ro && !d.meeting_images.length) { box.className = ''; box.innerHTML = '<span class="muted small">No meeting photo uploaded.</span>'; S.meetingUp = null; }
     else {
       S.meetingUp = new Uploader(box, {
-        fields: { kind: 'meeting', date: S.date }, images: d.meeting_images, editable: !ro, max: 4, label: 'Add meeting photo',
+        fields: { kind: 'meeting', date: S.date }, images: d.meeting_images, editable: !ro, max: 4, label: 'Take meeting photo',
         onChange: (imgs) => { S.data.meeting_images = imgs; markStarted(); if (imgs.length) qs('#meetingCard').classList.remove('missing'); applyHeldVisibility(); },
         onBusyChange: refreshSubmit,
       });
@@ -156,7 +156,7 @@
       <div class="up"></div>
       <div class="remark-label">Remarks${ro ? '' : ' <span class="hint">(required if no photo)</span>'}</div>
       <div class="remark-slot"></div>
-      <div class="row" style="justify-content:space-between;margin-top:4px"><span class="need">Add at least one photo, or a remark explaining why there is none.</span><span class="spacer"></span><span class="save-ind"></span></div>
+      <div class="row" style="justify-content:space-between;margin-top:4px"><span class="need">Take at least one photo, or a remark explaining why there is none.</span><span class="spacer"></span><span class="save-ind"></span></div>
       <div class="tso-slot"></div>`;
     const slot = el.querySelector('.remark-slot');
     if (ro) {
@@ -179,7 +179,7 @@
     if (ro && !sr.images.length) up.innerHTML = '<span class="muted small">No plan photo uploaded.</span>';
     else {
       S.srUps.set(sr.sr_id, new Uploader(up, {
-        fields: { kind: 'sr', date: S.date, sr_id: sr.sr_id }, images: sr.images, editable: !ro, max: 6, label: 'Add plan photos',
+        fields: { kind: 'sr', date: S.date, sr_id: sr.sr_id }, images: sr.images, editable: !ro, max: 6, label: 'Take plan photo',
         onChange: (imgs) => { sr.images = imgs; sr.entry.tso_status = 'pending'; markStarted(); updateSR(sr); updateProgress(); applyFilter(); },
         onBusyChange: () => { updateSR(sr); refreshSubmit(); },
       }));

@@ -226,7 +226,7 @@
     const d = S.data, locked = !d.can_edit;
     if (withUploader) {
       S.uploader = new Uploader(qs('#tsoUploader'), {
-        fields: { kind: 'tso', date: d.date }, images: d.tso_images, editable: !locked, max: 10, label: 'Add TSO photo',
+        fields: { kind: 'tso', date: d.date }, images: d.tso_images, editable: !locked, max: 10, label: 'Take TSO photo',
         onChange: (imgs) => { d.tso_images = imgs; recompute(); renderFinal(false); renderStats(); },
       });
       if (locked && !d.tso_images.length) qs('#tsoUploader').innerHTML = '<span class="muted small">No TSO photo.</span>';

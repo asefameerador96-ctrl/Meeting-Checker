@@ -5,7 +5,8 @@
   const COLORS = {           // validated categorical slots (see dataviz palette); text never wears these
     missing: '#eb6834',      // images not uploaded
     uploaded: '#1baf7a',     // uploaded, not yet checked / SRs with images
-    checked: '#2a78d6',      // checked by checker
+    checked: '#2a78d6',      // checked by checker (Correct photos? not "No")
+    incorrect: '#b3261e',    // checked, but Correct photos? = No (deep red, distinct from the orange "missing")
     total: '#6250d6',        // count of SR
   };
   const INK = { muted: '#898781', ink2: '#52514e', grid: '#e1e0d9', axis: '#c3c2b7', surface: '#ffffff' };
@@ -43,7 +44,11 @@
     divObj() { const w = this.wingObj(); return w && w.divisions.find(d => d.name === this.d.value); }
     init(saved) {
       saved = saved || {};
-      setOptions(this.w, state.hier.wings.map(w => ({ value: w.name, label: w.name })), this.allowAll ? 'All wings' : 'Select wing…', saved.wing);
+      // a checker assigned to exactly one wing gets it pre-selected and no "All wings" / "Select wing…" option
+      const single = state.hier.wings.length === 1;
+      setOptions(this.w, state.hier.wings.map(w => ({ value: w.name, label: w.name })),
+        single ? null : (this.allowAll ? (state.hier.my_wings ? 'All my wings' : 'All wings') : 'Select wing…'), single ? state.hier.wings[0].name : saved.wing);
+      this.w.disabled = single;
       this.fillDivisions(saved.division); this.fillTerritories(saved.territory_code);
     }
     fillDivisions(value) {
@@ -348,7 +353,7 @@
   function scopeLabel() {
     const v = dashFilter.value();
     if (v.territory_code) return qs('#bTerritory').selectedOptions[0].textContent;
-    return v.division || v.wing || 'All wings';
+    return v.division || v.wing || (state.hier.my_wings ? 'All my wings' : 'All wings');
   }
 
   function kpi(label, value, of, sub, barPct) {
@@ -362,7 +367,8 @@
     qs('#kpis').innerHTML = [
       kpi('Pre-plan meetings held', nf.format(T.zones_meeting_held), nf.format(T.zones_total), `${pct(T.zones_meeting_held, T.zones_total)}% of locations (AMOs)`, pct(T.zones_meeting_held, T.zones_total)),
       kpi('SRs with outlet-wise pre-plan', nf.format(T.uploaded), nf.format(T.total_srs), `${T.pct_uploaded}% have photos · ${nf.format(T.not_uploaded)} missing`, T.pct_uploaded),
-      kpi('Checked by checkers', nf.format(T.checked), nf.format(T.uploaded), `${pct(T.checked, T.uploaded)}% of uploaded · ${nf.format(T.uploaded_not_checked)} to go`, pct(T.checked, T.uploaded)),
+      kpi('Checked by checkers', nf.format(T.checked_total), nf.format(T.uploaded), `${pct(T.checked_total, T.uploaded)}% of uploaded · ${nf.format(T.uploaded_not_checked)} to go`, pct(T.checked_total, T.uploaded)),
+      kpi('Incorrect photos', nf.format(T.incorrect), nf.format(T.checked_total), `${pct(T.incorrect, T.checked_total)}% of checked SRs marked "No"`, null),
       kpi('Check pass rate', (T.check_pass + T.check_fail) ? T.pass_pct + '%' : '—', null, `${nf.format(T.check_pass)} correct · ${nf.format(T.check_fail)} incorrect photos`, null),
       kpi('Territories submitted', nf.format(T.territories_submitted), nf.format(T.territories_total), `${pct(T.territories_submitted, T.territories_total)}% submitted by TSOs`, pct(T.territories_submitted, T.territories_total)),
     ].join('');
@@ -372,7 +378,7 @@
 
   function renderPie() {
     const P = state.dash.pie, total = state.dash.totals.total_srs;  // center label reads state on every draw
-    const colors = [COLORS.missing, COLORS.uploaded, COLORS.checked];
+    const colors = [COLORS.missing, COLORS.uploaded, COLORS.checked, COLORS.incorrect];
     const center = {
       id: 'centerTotal',
       afterDraw(chart) {
@@ -384,8 +390,8 @@
         ctx.restore();
       },
     };
-    const values = total ? P.values : [0, 0, 0];
-    if (state.pie) { state.pie.data.datasets[0].data = values; state.pie.update(); }
+    const values = total ? P.values : P.values.map(() => 0);
+    if (state.pie) { state.pie.data.labels = P.labels; state.pie.data.datasets[0].data = values; state.pie.update(); }
     else {
       state.pie = new Chart(qs('#pieChart'), {
         type: 'doughnut',
@@ -437,7 +443,7 @@
           tooltip: { callbacks: {
             title: (items) => { const r = rows[items[0].dataIndex]; return r.territory_code ? `${r.territory} (${r.territory_code}) · ${r.division}` : `${r.division} (${r.wing})`; },
             label: (c) => ` ${c.dataset.label}: ${nf.format(c.raw)}`,
-            footer: (items) => { const r = rows[items[0].dataIndex]; return `${r.pct_uploaded}% uploaded · ${nf.format(r.checked)} checked`; },
+            footer: (items) => { const r = rows[items[0].dataIndex]; return `${r.pct_uploaded}% uploaded · ${nf.format(r.checked)} checked (correct) · ${nf.format(r.incorrect)} incorrect`; },
           } },
         },
         onClick: (_e, els) => {
@@ -461,13 +467,13 @@
     qs('#tblNote').textContent = `${rows.length} division(s) · ${fmtDay(D.date, state.dates.indexOf(D.date))}`;
     const pc = (n, t) => `${pct(n, t)}%<span class="pct-bar"><i style="width:${pct(n, t)}%"></i></span>`;
     qs('#divTable').innerHTML = `
-      <thead><tr><th>Wing</th><th>Division</th><th class="num">Count of SR</th><th class="num">SRs with images</th><th class="num">Not uploaded</th><th class="num">% uploaded</th><th class="num">Checked</th></tr></thead>
+      <thead><tr><th>Wing</th><th>Division</th><th class="num">Count of SR</th><th class="num">SRs with images</th><th class="num">Not uploaded</th><th class="num">% uploaded</th><th class="num" title="Checked by checker with Correct photos? Yes or blank">Checked (correct)</th><th class="num" title="Checked by checker and marked Correct photos? No">Incorrect photo</th></tr></thead>
       <tbody>${rows.map((r, i) => `<tr data-i="${i}" title="Show ${esc(r.division)}"><td>${esc(r.wing)}</td><td>${esc(r.division)}</td><td class="num">${nf.format(r.total_srs)}</td>
         <td class="num">${nf.format(r.srs_with_images)}</td><td class="num">${nf.format(r.total_srs - r.srs_with_images)}</td>
-        <td class="num nowrap">${pc(r.srs_with_images, r.total_srs)}</td><td class="num">${nf.format(r.checked)}</td></tr>`).join('') ||
-        '<tr><td colspan="7" class="muted">No data</td></tr>'}</tbody>
+        <td class="num nowrap">${pc(r.srs_with_images, r.total_srs)}</td><td class="num">${nf.format(r.checked)}</td><td class="num${r.incorrect ? ' c-bad' : ''}">${nf.format(r.incorrect)}</td></tr>`).join('') ||
+        '<tr><td colspan="8" class="muted">No data</td></tr>'}</tbody>
       <tfoot><tr><td colspan="2">Total</td><td class="num">${nf.format(T.total_srs)}</td><td class="num">${nf.format(T.uploaded)}</td>
-        <td class="num">${nf.format(T.not_uploaded)}</td><td class="num nowrap">${pc(T.uploaded, T.total_srs)}</td><td class="num">${nf.format(T.checked)}</td></tr></tfoot>`;
+        <td class="num">${nf.format(T.not_uploaded)}</td><td class="num nowrap">${pc(T.uploaded, T.total_srs)}</td><td class="num">${nf.format(T.checked)}</td><td class="num${T.incorrect ? ' c-bad' : ''}">${nf.format(T.incorrect)}</td></tr></tfoot>`;
     qsa('#divTable tbody tr[data-i]').forEach(tr => tr.onclick = () => { const r = rows[+tr.dataset.i]; dashFilter.set({ wing: r.wing, division: r.division }); });
   }
 
@@ -500,6 +506,8 @@
     try { state.hier = await api.get('/api/checker/hierarchy'); }
     catch (e) { qs('#dBody').innerHTML = `<div class="card banner banner-bad">${esc(e.message)}</div>`; return; }
     state.dates = state.hier.viewable_dates || [];
+    const mw = state.hier.my_wings, mwEl = qs('#myWings');
+    if (mw) { mwEl.innerHTML = `Your wing${mw.length === 1 ? '' : 's'}: <b>${mw.length ? mw.map(esc).join(', ') : 'none assigned — ask the admin'}</b>`; mwEl.classList.remove('hidden'); }
     const dateOpts = state.dates.map((d, i) => ({ value: d, label: fmtDay(d, i) }));
     const sd = load('detail') || {}, sb = load('dash') || {};
     setOptions(qs('#dDate'), dateOpts, null, sd.date); setOptions(qs('#bDate'), dateOpts, null, sb.date);

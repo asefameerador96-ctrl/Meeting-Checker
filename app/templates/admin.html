@@ -19,6 +19,11 @@
   .u-sub { font-size: .8rem; color: var(--muted); }
   .u-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
   tr.inactive td { background: #fbfbfc; color: var(--muted); }
+  .u-wings { display: flex; gap: 4px; flex-wrap: wrap; }
+  .wg-all { flex-direction: row; align-items: center; gap: 8px; font-weight: 600; color: var(--text); padding: 8px 0; border-bottom: 1px solid var(--border); }
+  .wg-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 4px 12px; padding: 6px 0; }
+  .wg-item { flex-direction: row; align-items: center; gap: 8px; font-weight: 400; color: var(--text); min-height: 36px; }
+  .wg-all input, .wg-item input { width: 18px; height: 18px; min-height: 0; flex: 0 0 auto; }
   .pw-box { display: flex; gap: 8px; align-items: center; }
   .pw-box code { flex: 1; font-size: 1.3rem; letter-spacing: .06em; padding: 10px 12px; border-radius: 8px; background: var(--surface-2);
     border: 1px solid var(--border); text-align: center; user-select: all; }
@@ -41,7 +46,7 @@
   <div class="adm-head">
     <div>
       <h1>User administration</h1>
-      <p class="muted small">Search accounts, reset passwords and activate or deactivate users.</p>
+      <p class="muted small">Search accounts, reset passwords, activate or deactivate users and assign checkers to wings.</p>
     </div>
     <div class="adm-links">
       <a class="btn btn-ghost btn-sm" id="csvLink" href="/api/admin/users.csv" download>Export all usernames (no passwords)</a>
@@ -84,7 +89,7 @@
   </div>
   <div class="table-wrap">
     <table class="tbl" id="userTbl">
-      <thead><tr><th>User</th><th>Role</th><th>Territory / Zone</th><th>Last login</th><th>Status</th><th class="num">Actions</th></tr></thead>
+      <thead><tr><th>User</th><th>Role</th><th>Territory / Zone / Wings</th><th>Last login</th><th>Status</th><th class="num">Actions</th></tr></thead>
       <tbody id="userRows"><tr><td colspan="6" class="skeleton">Loading…</td></tr></tbody>
     </table>
   </div>
@@ -96,6 +101,17 @@
     <p class="small muted" style="margin:0">Share it with the user securely. It is shown only once; the user has been signed out and should change it after logging in.</p>
     <div class="pw-box"><code id="pwValue"></code><button class="btn btn-sm" type="button" id="pwCopy">Copy</button></div>
     <div class="row-end"><button class="btn btn-primary" type="button" id="pwDone">Done</button></div>
+  </div>
+</dialog>
+
+<dialog id="wgDlg" class="modal">
+  <div class="body">
+    <h3>Wings for <span id="wgUser"></span></h3>
+    <p class="small muted" style="margin:0">The checker sees and checks only these wings (territory details, dashboard and Excel). Changes apply immediately.</p>
+    <label class="wg-all"><input type="checkbox" id="wgAll"> All wings</label>
+    <div class="wg-list" id="wgList"></div>
+    <p class="small muted" id="wgNote" style="margin:0"></p>
+    <div class="row-end"><button class="btn btn-ghost" type="button" id="wgCancel">Cancel</button><button class="btn btn-primary" type="button" id="wgSave">Save</button></div>
   </div>
 </dialog>
 {% endblock %}

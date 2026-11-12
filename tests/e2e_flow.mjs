@@ -119,6 +119,28 @@ function watchErrors(page, tag) {
   page.on('pageerror', e => check(`${tag}: no JS page errors`, false, e.message));
   page.on('dialog', d => d.accept());
 }
+// Photos are taken live with the in-app camera (Chromium fake camera: --use-fake-device-for-media-stream).
+// Opens the camera from the uploader's "Take ... photo" tile, presses the shutter n times, then closes the camera
+// (uploads keep running behind it with their per-photo progress bars).
+// Chromium's fake camera plays the same short looping animation every time it starts, so captured frames repeat
+// byte-for-byte across camera sessions (=> false REUSED flags). Real camera frames never do. Test-only init script:
+// stamp a unique marker onto every captured video frame.
+const UNIQUE_FRAMES = () => {
+  const orig = CanvasRenderingContext2D.prototype.drawImage; let n = 0;
+  CanvasRenderingContext2D.prototype.drawImage = function (...a) {
+    const r = orig.apply(this, a);
+    if (a[0] instanceof HTMLVideoElement) { this.fillStyle = '#fff'; this.font = '48px sans-serif'; this.fillText(`shot ${++n} ${Date.now()} ${Math.random()}`, 24, 72); }
+    return r;
+  };
+};
+async function takePhotos(page, uploaderSel, n, { keepOpen = false } = {}) {
+  await page.click(`${uploaderSel} .add-tile`);
+  await page.waitForSelector('#cameraDlg[open] .cam-shutter:not([disabled])', { timeout: 15000 });
+  await page.waitForFunction(() => document.querySelector('#cameraDlg video').videoWidth > 0, null, { timeout: 15000 });
+  for (let i = 0; i < n; i++) { await page.click('#cameraDlg .cam-shutter'); await page.waitForTimeout(120); }
+  await page.waitForFunction((k) => document.querySelectorAll('#cameraDlg .cam-strip .thumb').length >= k, n, { timeout: 15000 });
+  if (!keepOpen) { await page.click('#cameraDlg .cam-done'); await page.waitForSelector('#cameraDlg:not([open])', { state: 'attached' }); }
+}
 const shot = (page, name, full = true) => page.screenshot({ path: path.join(SHOTS, `e2e_${name}.png`), fullPage: full });
 
 /* ======================================================================== */
@@ -126,10 +148,9 @@ async function main() {
   fs.mkdirSync(SHOTS, { recursive: true });
   for (const f of fs.readdirSync(SHOTS)) if (f.startsWith('e2e_')) fs.rmSync(path.join(SHOTS, f));
   const PW = credentials();
-  const imgs = makeImages(48); let imgI = 0;
-  const nextImgs = (n) => { const out = []; for (let i = 0; i < n; i++) out.push(imgs[imgI++ % imgs.length]); return out; };
+  const imgs = makeImages(48);  // used for direct API uploads; UI photos come from the fake camera
   const srv = await startServer();
-  const browser = await chromium.launch();
+  const browser = await chromium.launch({ args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] });
   const plan = {};   // zone -> {photos:{sr:n}, remarks:{sr:text}}
   let today;
   try {
@@ -141,7 +162,8 @@ async function main() {
     /* ===================== AMO portal (mobile 390px) ===================== */
     for (const [zi, [zc, zname]] of zones.entries()) {
       const user = 'amo' + zc;
-      const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+      const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, permissions: ['camera'] });
+      await ctx.addInitScript(UNIQUE_FRAMES);
       const page = await ctx.newPage(); watchErrors(page, user);
       await login(page, user, PW[user]);
       check(`${user} lands on /amo`, new URL(page.url()).pathname === '/amo', page.url());
@@ -168,7 +190,7 @@ async function main() {
       if (zi === 0) {
         cdp = await ctx.newCDPSession(page);
         await cdp.send('Network.enable');
-        await cdp.send('Network.emulateNetworkConditions', { offline: false, latency: 80, downloadThroughput: 400 * 1024, uploadThroughput: 120 * 1024 });
+        await cdp.send('Network.emulateNetworkConditions', { offline: false, latency: 80, downloadThroughput: 400 * 1024, uploadThroughput: 30 * 1024 })  // camera frames are small: throttle hard so progress is visible;
         await page.evaluate(() => {
           window.__pcts = new Set(); window.__btnDisabledDuringUpload = null;
           new MutationObserver(() => {
@@ -180,7 +202,7 @@ async function main() {
           }).observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
         });
       }
-      await page.setInputFiles('#meetingUploader input[type=file]', nextImgs(1));
+      await takePhotos(page, '#meetingUploader', 1);
       if (zi === 0) {
         await page.waitForSelector('#meetingUploader .thumb.uploading .prog', { timeout: 5000 });
         await page.waitForFunction(() => /\d+%/.test((document.querySelector('#meetingUploader .thumb.uploading .pct') || {}).textContent || ''), null, { timeout: 15000 }).catch(() => { });
@@ -194,7 +216,7 @@ async function main() {
         const card = `#srList article.sr-card[data-sr="${sr}"]`;
         if (i < srs.length - 2) {
           const n = i % 3 === 0 ? 2 : 1;
-          await page.setInputFiles(`${card} .up input[type=file]`, nextImgs(n));
+          await takePhotos(page, `${card} .up`, n);
           if (zi === 0 && i === 0) {
             await page.waitForSelector(`${card} .thumb.uploading`, { timeout: 5000 });
             await page.waitForFunction((c) => /\d+%/.test((document.querySelector(c + ' .thumb.uploading .pct') || {}).textContent || ''), card, { timeout: 15000 }).catch(() => { });
@@ -255,12 +277,15 @@ async function main() {
       check(`DB: SR image counts zone ${zc} match uploads`, JSON.stringify(Object.fromEntries(Object.entries(dbImgs).sort())) === JSON.stringify(Object.fromEntries(Object.entries(plan[zc].photos).sort())), { dbImgs, plan: plan[zc].photos });
       const dup = sql("select count(*) from images where report_date=? and zone_code=? and duplicate_of_id is not null", [today, +zc])[0][0];
       check(`DB: no false REUSED flags zone ${zc}`, dup === 0, dup);
+      const srcs = sql("select coalesce(source,'NULL'),count(*) from images where report_date=? and zone_code=? group by 1", [today, +zc]);
+      check(`DB: all photos of zone ${zc} were taken with the camera (source=camera)`, srcs.length === 1 && srcs[0][0] === 'camera', srcs);
     }
 
     /* ===================== TSO portal ===================== */
     {
       const user = 'tso' + TERR;
-      const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+      const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, permissions: ['camera'] });
+      await ctx.addInitScript(UNIQUE_FRAMES);
       const page = await ctx.newPage(); watchErrors(page, user);
       await login(page, user, PW[user]);
       check(`${user} lands on /tso`, new URL(page.url()).pathname === '/tso', page.url());
@@ -295,7 +320,7 @@ async function main() {
       check(`${user} Submit still hidden after approving all (no TSO photo yet)`, await page.isHidden('#btnSubmit'));
       await page.locator('#finalCard').scrollIntoViewIfNeeded();
       await shot(page, 'tso_before_photo', false);
-      await page.setInputFiles('#tsoUploader input[type=file]', nextImgs(1));
+      await takePhotos(page, '#tsoUploader', 1);
       await page.waitForFunction(() => !document.querySelector('#tsoUploader .thumb.uploading') && document.querySelectorAll('#tsoUploader .thumb').length === 1, null, { timeout: 60000 });
       await page.fill('#tsoRemarks', 'All AMOs held the meeting today.');
       await page.waitForSelector('#btnSubmit:not(.hidden)', { timeout: 5000 }).catch(() => { });
@@ -334,11 +359,15 @@ async function main() {
       const page = await ctx.newPage(); watchErrors(page, user);
       await login(page, user, PW[user]);
       check(`${user} lands on /checker`, new URL(page.url()).pathname === '/checker', page.url());
-      await page.waitForFunction(() => document.querySelectorAll('#dWing option').length > 1 && document.querySelectorAll('#dDate option').length > 0);
+      await page.waitForFunction(() => document.querySelectorAll('#dWing option').length >= 1 && document.querySelectorAll('#dDate option').length > 0);
+      // checker01 is assigned to exactly one wing (seed default): it is pre-selected, locked, and shown in the header
+      const wingOpts = await page.$$eval('#dWing option', o => o.map(x => x.value));
+      check(`${user} wing select offers only ${WING} (pre-selected, locked)`, JSON.stringify(wingOpts) === JSON.stringify([WING]) && await page.inputValue('#dWing') === WING && await page.isDisabled('#dWing'), wingOpts);
+      const myWings = await page.textContent('#myWings');
+      check(`${user} header shows "Your wing: ${WING}"`, myWings.includes('Your wing') && myWings.includes(WING) && await page.isVisible('#myWings'), myWings);
       const dates = await page.$$eval('#dDate option', o => o.map(x => x.value));
       check('checker date options = last 3 days, today first', dates.length === 3 && dates[0] === today, dates);
       await page.selectOption('#dDate', today);
-      await page.selectOption('#dWing', WING);
       await page.selectOption('#dDivision', DIV);
       await page.selectOption('#dTerritory', String(TERR));
       await page.waitForSelector('#srTable tbody tr:not(.grp)', { timeout: 15000 });
@@ -403,15 +432,19 @@ async function main() {
         const up = sql(`select count(*) from (select distinct i.zone_code, i.sr_id from images i join territories t on t.code=i.territory_code
             join territory_reports tr on tr.territory_code=i.territory_code and tr.report_date=i.report_date and tr.status='submitted'
             where i.kind='sr' and i.report_date=? ${scopeWhere})`, [today, ...params])[0][0];
-        const chk = sql(`select count(*) from sr_entries e join territories t on t.code=e.territory_code where e.report_date=? and e.checked=1
-            and exists(select 1 from images i where i.kind='sr' and i.report_date=e.report_date and i.zone_code=e.zone_code and i.sr_id=e.sr_id) ${scopeWhere}`, [today, ...params])[0][0];
-        return { total, up, chk, pie: [total - up, up - chk, chk] };
+        const [chk, bad] = sql(`select count(*), coalesce(sum(case when e.checker_valid='no' then 1 else 0 end),0) from sr_entries e join territories t on t.code=e.territory_code where e.report_date=? and e.checked=1
+            and exists(select 1 from images i where i.kind='sr' and i.report_date=e.report_date and i.zone_code=e.zone_code and i.sr_id=e.sr_id) ${scopeWhere}`, [today, ...params])[0];
+        return { total, up, chk, good: chk - bad, bad, pie: [total - up, up - chk, chk - bad, bad] };
       };
-      const eAll = exp('', []);
-      check('dashboard pie (all wings) = DB [not uploaded, uploaded-not-checked, checked]', JSON.stringify(dashUi.pie) === JSON.stringify(eAll.pie), { ui: dashUi.pie, db: eAll });
-      check('pie labels per SPEC', JSON.stringify(dashUi.labels) === JSON.stringify(['Images not uploaded', 'Images uploaded (not yet checked)', 'Checked by checker']), dashUi.labels);
-      const nDiv = sql('select count(distinct division) from territories')[0][0];
-      check('bar chart: one bar group per division (all scope)', dashUi.bar.labels.length === nDiv && dashUi.bar.ds.length === 2, { n: dashUi.bar.labels.length, nDiv, ds: dashUi.bar.ds.map(d => d.label) });
+      // checker01 only sees its wing: the default (no wing param) scope is that wing, not all wings
+      const eAll = exp('and t.wing=?', [WING]);
+      check('dashboard pie (checker01 wing) = DB [not uploaded, uploaded-not-checked, checked, incorrect]', JSON.stringify(dashUi.pie) === JSON.stringify(eAll.pie), { ui: dashUi.pie, db: eAll });
+      check('pie has an "Incorrect photo" slice (1 checked SR marked No)', eAll.bad === 1 && dashUi.pie[3] === 1, { ui: dashUi.pie, db: eAll });
+      check('pie slices sum to total SRs', dashUi.pie.reduce((a, b) => a + b, 0) === eAll.total, { ui: dashUi.pie, total: eAll.total });
+      check('pie labels per SPEC', JSON.stringify(dashUi.labels) === JSON.stringify(['Images not uploaded', 'Images uploaded (not yet checked)', 'Checked by checker', 'Incorrect photo']), dashUi.labels);
+      check('pie legend lists Incorrect photo', /Incorrect photo\s*1/.test(dashUi.legend), dashUi.legend);
+      const nDiv = sql('select count(distinct division) from territories where wing=?', [WING])[0][0];
+      check('bar chart: one bar group per division (wing scope)', dashUi.bar.labels.length === nDiv && dashUi.bar.ds.length === 2, { n: dashUi.bar.labels.length, nDiv, ds: dashUi.bar.ds.map(d => d.label) });
       const iDiv = dashUi.bar.labels.indexOf(DIV);
       const divTotal = sql('select count(*) from assignments a join territories t on t.code=a.territory_code where t.division=?', [DIV])[0][0];
       const eDiv = exp('and t.division=?', [DIV]);
@@ -424,11 +457,11 @@ async function main() {
       check('KPI pass rate shows 50%', dashUi.kpis.some(k => /pass rate/i.test(k) && /50(\.0)?%/.test(k)), dashUi.kpis);
 
       // scope to the division
-      await page.selectOption('#bWing', WING);
+      check('dashboard wing select locked to the assigned wing', await page.inputValue('#bWing') === WING && await page.isDisabled('#bWing'));
       await page.selectOption('#bDivision', DIV);
       await page.waitForTimeout(1200);
       const api = await page.evaluate((q) => api.get('/api/checker/dashboard?' + q), new URLSearchParams({ date: today, wing: WING, division: DIV }).toString());
-      check(`dashboard API (${DIV}) totals = DB`, api.totals.total_srs === eDiv.total && api.totals.uploaded === eDiv.up && api.totals.checked === eDiv.chk &&
+      check(`dashboard API (${DIV}) totals = DB`, api.totals.total_srs === eDiv.total && api.totals.uploaded === eDiv.up && api.totals.checked === eDiv.good && api.totals.incorrect === eDiv.bad && api.totals.checked_total === eDiv.chk &&
         JSON.stringify(api.pie.values) === JSON.stringify(eDiv.pie), { api: api.totals, db: eDiv });
       const zTot = sql('select count(*) from zones z join territories t on t.code=z.territory_code where t.division=?', [DIV])[0][0];
       check('KPI meetings held = zones of 1001 / zones in division', api.totals.zones_meeting_held === zones.length && api.totals.zones_total === zTot, api.totals);
@@ -479,6 +512,38 @@ async function main() {
       await ctx.close();
     }
 
+    /* ===================== admin: checker wing assignment ===================== */
+    {
+      const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+      const page = await ctx.newPage(); watchErrors(page, 'admin');
+      await login(page, 'admin', PW.admin);
+      await page.selectOption('#fRole', 'checker');
+      await page.waitForFunction(() => document.querySelectorAll('#userRows tr[data-u^="checker"]').length >= 10, null, { timeout: 10000 });
+      const shown = await page.$$eval('#userRows tr[data-u^="checker"]', trs => Object.fromEntries(trs.map(tr => [tr.dataset.u, tr.querySelector('.u-wings').textContent.trim()])));
+      check('admin list shows each checker\'s wings (01-05 one wing each, 06-10 all)', shown.checker01 === 'Chittagong North' && shown.checker05 === 'Sylhet' && shown.checker06 === 'All wings' && shown.checker10 === 'All wings', shown);
+      await page.click('#userRows tr[data-u="checker02"] button[data-act="wings"]');
+      await page.waitForSelector('#wgDlg[open] #wgList input');
+      const pre = await page.$$eval('#wgList input:checked', i => i.map(x => x.value));
+      check('wing editor pre-checks the current wing', JSON.stringify(pre) === JSON.stringify(['Chittagong South']), pre);
+      await page.check('#wgList input[value="Noakhali"]');
+      await page.screenshot({ path: path.join(SHOTS, 'e2e_admin_wings_edit.png') });
+      await page.click('#wgSave');
+      await page.waitForSelector('#wgDlg:not([open])', { state: 'attached' });
+      await page.waitForFunction(() => /Noakhali/.test(document.querySelector('#userRows tr[data-u="checker02"] .u-wings').textContent));
+      const dbw = sql("select scope_wings from users where username='checker02'")[0][0];
+      check('admin wing edit saved to DB', JSON.stringify(JSON.parse(dbw).sort()) === JSON.stringify(['Chittagong South', 'Noakhali']), dbw);
+      const c2 = await apiCtx('checker02', PW.checker02);
+      const h2 = await (await c2.get('/api/checker/hierarchy')).json();
+      check('checker02 immediately sees the 2 assigned wings', JSON.stringify(h2.wings.map(w => w.name).sort()) === JSON.stringify(['Chittagong South', 'Noakhali']), h2.my_wings);
+      await page.click('#userRows tr[data-u="checker02"] button[data-act="wings"]');
+      await page.check('#wgAll');
+      await page.click('#wgSave');
+      await page.waitForFunction(() => /All wings/.test(document.querySelector('#userRows tr[data-u="checker02"] .u-wings').textContent));
+      check('"All wings" stored as empty string', sql("select scope_wings from users where username='checker02'")[0][0] === '');
+      await page.screenshot({ path: path.join(SHOTS, 'e2e_admin_wings_list.png'), fullPage: true });
+      await c2.dispose(); await ctx.close();
+    }
+
     /* ===================== isolation ===================== */
     {
       const img1001 = sql("select id from images where territory_code=? and kind='sr' limit 1", [TERR])[0][0];
@@ -508,7 +573,7 @@ async function main() {
       check(`amo${otherZone} cannot delete 1001 image`, [403, 404].includes(rd.status()), rd.status());
       const rs = await amo2.put(`/api/amo/sr/${plan[zones[0][0]].srs[0]}`, { data: { date: today, amo_remarks: 'hack' } });
       check(`amo${otherZone} cannot write remark on a 1001 SR`, [400, 403, 404].includes(rs.status()), rs.status());
-      const ru = await amo2.post('/api/images', { multipart: { file: { name: 'a.jpg', mimeType: 'image/jpeg', buffer: fs.readFileSync(imgs[47]) }, kind: 'sr', date: today, sr_id: plan[zones[0][0]].srs[0] } });
+      const ru = await amo2.post('/api/images', { multipart: { file: { name: 'a.jpg', mimeType: 'image/jpeg', buffer: fs.readFileSync(imgs[47]) }, kind: 'sr', source: 'camera', date: today, sr_id: plan[zones[0][0]].srs[0] } });
       check(`amo${otherZone} cannot upload to a 1001 SR`, [400, 403, 404].includes(ru.status()), ru.status());
       const rc = await amo2.get(`/api/checker/dashboard?date=${today}`);
       check(`amo${otherZone} cannot call checker API`, rc.status() === 403, rc.status());
@@ -520,11 +585,24 @@ async function main() {
         const r = await chk[m](u, body ? { data: body } : undefined);
         check(`checker01 ${m.toUpperCase()} ${u} -> 403`, r.status() === 403, r.status());
       }
-      const ru2 = await chk.post('/api/images', { multipart: { file: { name: 'a.jpg', mimeType: 'image/jpeg', buffer: fs.readFileSync(imgs[46]) }, kind: 'sr', date: today, sr_id: plan[zones[0][0]].srs[0] } });
+      const ru2 = await chk.post('/api/images', { multipart: { file: { name: 'a.jpg', mimeType: 'image/jpeg', buffer: fs.readFileSync(imgs[46]) }, kind: 'sr', source: 'camera', date: today, sr_id: plan[zones[0][0]].srs[0] } });
       check('checker01 cannot upload images', [400, 403].includes(ru2.status()), ru2.status());
       // checker must not see data of a territory the TSO has not submitted (rows hidden)
       const rt2 = await (await chk.get(`/api/checker/territory?date=${today}&territory_code=${TERR_OTHER}`)).json();
       check('checker: non-submitted territory returns submitted:false and no rows', rt2.submitted === false && !(rt2.rows || []).length, { submitted: rt2.submitted, rows: (rt2.rows || []).length });
+      // wing scope: checker01 (Chittagong North) cannot reach another wing in any way
+      const [OW, OT] = sql('select wing, code from territories where wing!=? order by code limit 1', [WING])[0];
+      const oz = sql('select a.zone_code, a.sr_id from assignments a where a.territory_code=? limit 1', [OT])[0];
+      for (const [m, u, body] of [['get', `/api/checker/territory?date=${today}&territory_code=${OT}`], ['get', `/api/checker/dashboard?date=${today}&wing=${encodeURIComponent(OW)}`],
+        ['get', `/api/checker/export/full.xlsx?date=${today}&wing=${encodeURIComponent(OW)}`], ['get', `/api/checker/export/missing.xlsx?date=${today}&wing=${encodeURIComponent(OW)}`],
+        ['put', '/api/checker/sr', { date: today, zone_code: oz[0], sr_id: oz[1], checked: false, checker_valid: 'no' }],
+        ['put', '/api/checker/zone', { date: today, zone_code: oz[0], checker_meeting_valid: 'yes' }],
+        ['post', '/api/checker/check-all', { date: today, territory_code: OT }]]) {
+        const r = await chk[m](u, body ? { data: body } : undefined);
+        check(`checker01 (${WING}) ${m.toUpperCase()} ${u.split('?')[0]} for ${OW} -> 403`, r.status() === 403, r.status());
+      }
+      const hw = await (await chk.get('/api/checker/hierarchy')).json();
+      check('checker01 hierarchy lists only its wing', hw.wings.length === 1 && hw.wings[0].name === WING && JSON.stringify(hw.my_wings) === JSON.stringify([WING]), hw.my_wings);
       const rx = await chk.put('/api/checker/sr', { data: { date: today, zone_code: otherZone, sr_id: sql('select sr_id from assignments where zone_code=? limit 1', [otherZone])[0][0], checked: true } });
       check('checker cannot check SR of non-submitted territory', rx.status() >= 400, rx.status());
       // no CSRF header -> 403
@@ -543,7 +621,7 @@ async function main() {
       // pre-submit leak: can a checker fetch a photo of a territory that is NOT yet submitted (by id)?
       const lz = sql('select code from zones where territory_code=? order by code', [TERR_OTHER])[0][0];
       const amoL = await apiCtx('amo' + lz, PW['amo' + lz]);
-      const up = await amoL.post('/api/images', { multipart: { file: { name: 'z.jpg', mimeType: 'image/jpeg', buffer: fs.readFileSync(imgs[45]) }, kind: 'sr', date: today, sr_id: sql('select sr_id from assignments where zone_code=? limit 1', [lz])[0][0] } });
+      const up = await amoL.post('/api/images', { multipart: { file: { name: 'z.jpg', mimeType: 'image/jpeg', buffer: fs.readFileSync(imgs[45]) }, kind: 'sr', source: 'camera', date: today, sr_id: sql('select sr_id from assignments where zone_code=? limit 1', [lz])[0][0] } });
       if (up.ok()) {
         const id = (await up.json()).id;
         const rl = await chk.get(`/api/images/${id}/full`);

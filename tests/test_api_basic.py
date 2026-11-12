@@ -70,9 +70,11 @@ def jpeg_bytes(color=(200, 30, 30)) -> bytes:
     return buf.getvalue()
 
 
-def upload(c: TestClient, sr_id: str, color=(200, 30, 30)):
-    return c.post("/api/images", headers=H,
-                  data={"kind": "sr", "date": today().isoformat(), "sr_id": sr_id},
+def upload(c: TestClient, sr_id: str, color=(200, 30, 30), source="camera"):
+    data = {"kind": "sr", "date": today().isoformat(), "sr_id": sr_id}
+    if source is not None:
+        data["source"] = source
+    return c.post("/api/images", headers=H, data=data,
                   files={"file": ("plan.jpg", jpeg_bytes(color), "image/jpeg")})
 
 
@@ -163,6 +165,46 @@ def test_upload_and_thumb(world):
     # re-uploading the identical photo is flagged as re-used
     again = upload(c, world["sr_a"])
     assert again.status_code == 200 and again.json()["duplicate"] is True
+
+
+def test_camera_only_uploads(world, monkeypatch):
+    from app.config import settings
+    from app.models import Image
+    c = client_for("t_amo_a")
+    # no source / gallery-like source is rejected while CAMERA_ONLY (default) is on
+    for src in (None, "", "gallery", "file"):
+        r = upload(c, world["sr_a"], color=(5, 60, 90), source=src)
+        assert r.status_code == 400 and "camera" in r.json()["detail"].lower(), (src, r.text)
+    # the capture-input fallback is accepted and the source is stored on the image
+    r = upload(c, world["sr_a"], color=(6, 61, 91), source="capture_input")
+    assert r.status_code == 200, r.text
+    r2 = upload(c, world["sr_a"], color=(7, 62, 92), source="camera")
+    assert r2.status_code == 200, r2.text
+    with SessionLocal() as db:
+        assert db.get(Image, r.json()["id"]).source == "capture_input"
+        assert db.get(Image, r2.json()["id"]).source == "camera"
+    # with CAMERA_ONLY off, uploads without a source are accepted again (source NULL)
+    monkeypatch.setattr(settings, "CAMERA_ONLY", False)
+    r3 = upload(c, world["sr_a"], color=(8, 63, 93), source=None)
+    assert r3.status_code == 200, r3.text
+    with SessionLocal() as db:
+        assert db.get(Image, r3.json()["id"]).source is None
+    for x in (r, r2, r3):
+        assert c.delete(f"/api/images/{x.json()['id']}", headers=H).status_code == 200
+
+
+def test_migrate_images_source_on_existing_db(world):
+    """An existing (production) DB created before images.source existed gets the column added, idempotently."""
+    from sqlalchemy import inspect, text
+    from app.db import engine
+    from app.seed import _migrate_images_source, init_db
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE images DROP COLUMN source"))
+    assert "source" not in {c["name"] for c in inspect(engine).get_columns("images")}
+    init_db()
+    assert "source" in {c["name"] for c in inspect(engine).get_columns("images")}
+    _migrate_images_source()  # second run is a no-op
+    assert "source" in {c["name"] for c in inspect(engine).get_columns("images")}
 
 
 def test_amo_cannot_upload_for_foreign_sr(world):

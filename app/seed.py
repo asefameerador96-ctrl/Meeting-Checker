@@ -37,6 +37,64 @@ def _seed_lock():
 def init_db():
     with _seed_lock():
         Base.metadata.create_all(engine)
+        _migrate_users_scope_wings()
+        _migrate_images_source()
+
+
+def _add_column(table: str, column: str, sql_type: str) -> bool:
+    """ALTER TABLE <table> ADD COLUMN <column> unless it already exists (create_all never adds columns).
+    Idempotent on PostgreSQL (advisory lock + IF NOT EXISTS) and on SQLite, where several workers starting at once
+    may race: a 'duplicate column' error from the loser is treated as success after re-checking."""
+    from sqlalchemy import inspect
+    from sqlalchemy.exc import DBAPIError
+    if column in {c["name"] for c in inspect(engine).get_columns(table)}:
+        return False
+    ine = "IF NOT EXISTS " if engine.dialect.name == "postgresql" else ""
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {ine}{column} {sql_type}"))
+    except DBAPIError:
+        if column in {c["name"] for c in inspect(engine).get_columns(table)}:
+            return False  # another worker added it first
+        raise
+    log.info("migrated: added %s.%s", table, column)
+    return True
+
+
+def _migrate_images_source():
+    """Add images.source (camera | capture_input) to databases created before it existed. Existing rows keep NULL."""
+    _add_column("images", "source", "VARCHAR(20)")
+
+
+def _migrate_users_scope_wings():
+    """Add users.scope_wings (JSON list of wings; NULL/'' = all wings) to databases created before it existed."""
+    _add_column("users", "scope_wings", "TEXT")
+
+
+DEFAULT_SCOPED_CHECKERS = 5  # checker01..checker05 get one wing each; checker06.. get all wings
+
+
+def assign_default_checker_wings(db):
+    """Default wing per checker, applied only where scope_wings IS NULL (never assigned), so an admin's
+    later choice is never overwritten. checkerNN (NN <= 5) -> the NN-th wing in seed/territories.csv order."""
+    wings: list[str] = []
+    with open(SEED / "territories.csv", newline="", encoding="utf-8") as f:
+        for r in csv.DictReader(f):
+            if r["wing"] not in wings:
+                wings.append(r["wing"])
+    n = 0
+    for u in db.scalars(select(User).where(User.role == "checker", User.scope_wings.is_(None))):
+        name = u.username
+        if not (name.startswith("checker") and name[7:].isdigit()):
+            continue
+        i = int(name[7:])
+        if 1 <= i <= DEFAULT_SCOPED_CHECKERS and i <= len(wings):
+            u.scope_wings = json.dumps([wings[i - 1]])
+        else:
+            u.scope_wings = ""
+        n += 1
+    if n:
+        log.info("assigned default wings to %d checker(s)", n)
 
 
 def seed_hierarchy(db):
@@ -90,10 +148,14 @@ def seed_users(db):
 def run_seed():
     with _seed_lock():
         Base.metadata.create_all(engine)
+        _migrate_users_scope_wings()  # before any User insert/select on an existing (older) database
+        _migrate_images_source()
         with SessionLocal() as db:
             seed_hierarchy(db)
             db.flush()
             seed_users(db)
+            db.flush()
+            assign_default_checker_wings(db)
             db.commit()
 
 

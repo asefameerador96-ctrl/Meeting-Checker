@@ -36,6 +36,10 @@ class Settings:
     # (www., *.azurewebsites.net) are 301-redirected to https://<CANONICAL_HOST>.
     CANONICAL_HOST = os.getenv("CANONICAL_HOST", "").strip().lower()
     COOKIE_SECURE = _bool(os.getenv("COOKIE_SECURE"), default=False)
+    # Photos must be taken live with the in-app camera (or the camera-capture file input on browsers without
+    # getUserMedia). The client tags each upload with source=camera|capture_input and the server rejects anything
+    # else. NOTE: this is a UX guard, not tamper-proof — a determined user could forge the form field.
+    CAMERA_ONLY = _bool(os.getenv("CAMERA_ONLY"), default=True)
     SEED_ON_STARTUP = _bool(os.getenv("SEED_ON_STARTUP"), default=True)
     SESSION_MAX_AGE = int(os.getenv("SESSION_MAX_AGE", str(24 * 3600)))  # sign-in lasts 24 hours
 

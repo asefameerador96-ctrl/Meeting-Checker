@@ -7,6 +7,9 @@ POST /api/images  (multipart/form-data)
   sr_id       : required for kind=sr
   orig_sha256 : optional hex sha256 of the original file (client computed, for re-use detection)
   taken_at    : optional EXIF DateTimeOriginal "YYYY-MM-DD HH:MM:SS"
+  source      : "camera" (in-app live camera) | "capture_input" (camera-only file input fallback). With
+                settings.CAMERA_ONLY (default) anything else is rejected with 400. This only enforces the normal
+                UI path; it is not tamper-proof (the field is client supplied).
 AMO zone / TSO territory are taken from the logged-in user, never from the request.
 """
 import hashlib
@@ -26,6 +29,8 @@ from ..models import Assignment, Image, User, Zone
 from ..services import (assert_amo_can_edit, assert_tso_can_edit, get_sr_entry, get_zone_report, image_json,
                         parse_date, retention_start, territory_submitted)
 from ..storage import get_storage
+from ..models import Territory  # noqa: E402  (checker wing scope in _can_view)
+from ..services import allowed_wings, can_see_wing  # noqa: E402
 
 router = APIRouter(prefix="/api/images", tags=["images"])
 
@@ -36,6 +41,7 @@ except Exception:
     pass
 
 PILImage.MAX_IMAGE_PIXELS = 80_000_000
+CAMERA_SOURCES = ("camera", "capture_input")
 
 
 def _process(data: bytes):
@@ -67,7 +73,13 @@ def _process(data: bytes):
 @router.post("")
 def upload_image(file: UploadFile = File(...), kind: str = Form(...), date: str = Form(...),
                        sr_id: str = Form(""), orig_sha256: str = Form(""), taken_at: str = Form(""),
+                       source: str = Form(""),
                        user: User = Depends(require_role("amo", "tso")), db: Session = Depends(get_db)):
+    source = (source or "").strip().lower()
+    if source not in CAMERA_SOURCES:
+        if settings.CAMERA_ONLY:
+            raise HTTPException(400, "Photos must be taken with the camera. Please reload the page (pull down to refresh) and try again.")
+        source = (source or "")[:20] or None
     d = parse_date(date)
     zone_code = None
     if user.role == "amo":
@@ -131,7 +143,8 @@ def upload_image(file: UploadFile = File(...), kind: str = Form(...), date: str 
     img = Image(report_date=d, kind=kind, territory_code=territory_code, zone_code=zone_code,
                 sr_id=sr_id or None, blob_key=key + ".jpg", thumb_key=key + "_t.jpg", size_bytes=len(full),
                 width=w, height=h, sha256=sha, orig_sha256=osha, original_name=(file.filename or "")[:255],
-                taken_at=taken, duplicate_of_id=dup, old_photo=old, uploaded_by=user.username)
+                taken_at=taken, duplicate_of_id=dup, old_photo=old, uploaded_by=user.username,
+                source=source)
     db.add(img)
     if entry is not None:
         entry.tso_status = "pending"  # new evidence must be re-approved
@@ -153,7 +166,12 @@ def upload_image(file: UploadFile = File(...), kind: str = Form(...), date: str 
 
 def _can_view(db: Session, user: User, img: Image) -> bool:
     if user.role in ("checker", "admin"):
-        # the mother portal only sees territories the TSO has submitted (SPEC section C)
+        # the mother portal only sees territories the TSO has submitted (SPEC section C),
+        # and a wing-scoped checker only the wings assigned to them
+        if allowed_wings(user) is not None:
+            t = db.get(Territory, img.territory_code)
+            if not t or not can_see_wing(user, t.wing):
+                return False
         return territory_submitted(db, img.report_date, img.territory_code)
     if user.role == "amo":
         return img.zone_code == user.zone_code
