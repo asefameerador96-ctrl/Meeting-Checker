@@ -508,6 +508,7 @@
     state.dates = state.hier.viewable_dates || [];
     const mw = state.hier.my_wings, mwEl = qs('#myWings');
     if (mw) { mwEl.innerHTML = `Your wing${mw.length === 1 ? '' : 's'}: <b>${mw.length ? mw.map(esc).join(', ') : 'none assigned — ask the admin'}</b>`; mwEl.classList.remove('hidden'); }
+    else if (document.body.dataset.role === 'admin') { mwEl.innerHTML = `National view: <b>all ${state.hier.wings.length} wings</b>`; mwEl.classList.remove('hidden'); }
     const dateOpts = state.dates.map((d, i) => ({ value: d, label: fmtDay(d, i) }));
     const sd = load('detail') || {}, sb = load('dash') || {};
     setOptions(qs('#dDate'), dateOpts, null, sd.date); setOptions(qs('#bDate'), dateOpts, null, sb.date);

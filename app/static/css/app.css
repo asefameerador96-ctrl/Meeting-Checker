@@ -22,6 +22,7 @@ h1 { font-size: 1.35rem; margin: 0 0 .25rem; } h2 { font-size: 1.15rem; margin: 
 .role-chip { font-size: .7rem; padding: 2px 8px; border-radius: 99px; background: rgba(255,255,255,.2); letter-spacing: .04em; }
 .who { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .who-name { max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .95; font-size: .9rem; }
+.admin-nav { display: flex; gap: 6px; margin-left: auto; margin-right: 6px; }
 .topbar .btn-ghost { color: #fff; border-color: rgba(255,255,255,.35); }
 .topbar .btn-ghost:hover { background: rgba(255,255,255,.12); }
 
@@ -176,5 +177,6 @@ dialog.lightbox[open] { display: grid; place-items: center; }
   .topbar .btn-sm { padding: 4px 8px; font-size: .8rem; }
 }
 @media (max-width: 360px) { .brand-sub { display: none; } }
+@media (max-width: 640px) { .admin-nav .btn { padding: 4px 8px; font-size: .78rem; } .who-name { display: none; } }
 @media print { .topbar, .sticky-actions, .btn { display: none !important; } }
 .cam-strip .thumb.done .pct { color: #fff; text-shadow: 0 0 4px #000, 0 0 2px #000; }

@@ -14,13 +14,14 @@
 <link rel="stylesheet" href="/static/css/app.css?v={{ v }}">
 {% block head %}{% endblock %}
 </head>
-<body class="{% block bodyclass %}{% endblock %}">
+<body class="{% block bodyclass %}{% endblock %}" data-role="{{ user.role if user else '' }}">
 {% if user %}
 <header class="topbar">
   <div class="brand">
     <a class="brand-link" href="/" aria-label="Meeting Checker home"><img class="brand-mark" src="/static/img/mark-white.png?v={{ v }}" alt="" width="34" height="34"><span class="brand-name">Meeting Checker</span></a>
     <span class="brand-sub">Pre-Plan Follow-Up</span>
     <span class="role-chip role-{{ user.role }}">{{ user.role|upper }}</span></div>
+  {% if user.role == 'admin' %}<nav class="admin-nav"><a href="/checker#dashboard" class="btn btn-ghost btn-sm">National dashboard</a><a href="/admin" class="btn btn-ghost btn-sm">Users</a></nav>{% endif %}
   <div class="who">
     <span class="who-name" title="{{ user.username }}">{{ user.display_name or user.username }}</span>
     <button class="btn btn-ghost btn-sm" id="btnChangePw" type="button">Password</button>

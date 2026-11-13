@@ -38,6 +38,7 @@ PW = "Scope-pass-123"
 H = {"X-Requested-With": "fetch"}
 WING_IN, WING_OUT = "Chittagong North", "Sylhet"
 FIRST_FIVE = ["Chittagong North", "Chittagong South", "Noakhali", "Cumilla", "Sylhet"]
+ALL_TEN = FIRST_FIVE + ["Dhaka North", "Dhaka South", "Gaibandha", "Rangpur", "South Bengal"]
 
 
 def _jpeg() -> bytes:
@@ -120,10 +121,8 @@ def test_migration_and_default_wings(sw):
     run_seed()  # default assignment where scope_wings IS NULL
     with SessionLocal() as db:
         got = dict(db.execute(select(User.username, User.scope_wings).where(User.username.like("checker%"))).all())
-        for i, w in enumerate(FIRST_FIVE, start=1):
+        for i, w in enumerate(ALL_TEN, start=1):  # checker01..10 -> one wing each
             assert json.loads(got[f"checker{i:02d}"]) == [w]
-        for i in range(6, 11):
-            assert got[f"checker{i:02d}"] == ""
         # an admin's later choice is never overwritten by a re-seed
         db.execute(text("UPDATE users SET scope_wings='' WHERE username='checker01'"))
         db.commit()

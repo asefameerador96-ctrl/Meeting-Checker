@@ -128,7 +128,7 @@
 <div class="viz-root">
   <div class="page-head">
     <div>
-      <h1>Check-back portal</h1>
+      <h1>{% if user.role == "admin" %}National dashboard{% else %}Check-back portal{% endif %}</h1>
       <p class="muted small">Territories appear here once their TSO has made the final submission. Only the last few days are available.</p>
       <p class="my-wings hidden" id="myWings"></p>
     </div>

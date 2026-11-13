@@ -520,7 +520,7 @@ async function main() {
       await page.selectOption('#fRole', 'checker');
       await page.waitForFunction(() => document.querySelectorAll('#userRows tr[data-u^="checker"]').length >= 10, null, { timeout: 10000 });
       const shown = await page.$$eval('#userRows tr[data-u^="checker"]', trs => Object.fromEntries(trs.map(tr => [tr.dataset.u, tr.querySelector('.u-wings').textContent.trim()])));
-      check('admin list shows each checker\'s wings (01-05 one wing each, 06-10 all)', shown.checker01 === 'Chittagong North' && shown.checker05 === 'Sylhet' && shown.checker06 === 'All wings' && shown.checker10 === 'All wings', shown);
+      check('admin list shows each checker\'s wing (01-10 one wing each)', shown.checker01 === 'Chittagong North' && shown.checker05 === 'Sylhet' && shown.checker06 === 'Dhaka North' && shown.checker10 === 'South Bengal', shown);
       await page.click('#userRows tr[data-u="checker02"] button[data-act="wings"]');
       await page.waitForSelector('#wgDlg[open] #wgList input');
       const pre = await page.$$eval('#wgList input:checked', i => i.map(x => x.value));

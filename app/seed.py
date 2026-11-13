@@ -71,12 +71,12 @@ def _migrate_users_scope_wings():
     _add_column("users", "scope_wings", "TEXT")
 
 
-DEFAULT_SCOPED_CHECKERS = 5  # checker01..checker05 get one wing each; checker06.. get all wings
+DEFAULT_SCOPED_CHECKERS = 10  # checker01..checker10 get one wing each (10 wings); any further checker gets all wings
 
 
 def assign_default_checker_wings(db):
     """Default wing per checker, applied only where scope_wings IS NULL (never assigned), so an admin's
-    later choice is never overwritten. checkerNN (NN <= 5) -> the NN-th wing in seed/territories.csv order."""
+    later choice is never overwritten. checkerNN (NN <= 10) -> the NN-th wing in seed/territories.csv order."""
     wings: list[str] = []
     with open(SEED / "territories.csv", newline="", encoding="utf-8") as f:
         for r in csv.DictReader(f):

@@ -98,7 +98,7 @@ UI:
 ## C. Checker (mother) portal: `app/routers/checker.py`, `app/templates/checker.html`, `app/static/js/checker.js`
 `require_role("checker","admin")`. Two tabs.
 **Wing scope**: `users.scope_wings` (JSON list; NULL/'' = all wings) limits a checker to their wing(s); default checker01..05 = one wing each
-(Chittagong North, Chittagong South, Noakhali, Cumilla, Sylhet), checker06..10 = all; the admin edits it. Every checker endpoint (hierarchy,
+checker01..10 = the 10 wings in seed order (Chittagong North, Chittagong South, Noakhali, Cumilla, Sylhet, Dhaka North, Dhaka South, Gaibandha, Rangpur, South Bengal); admin always sees all wings (National dashboard); the admin edits checker wings. Every checker endpoint (hierarchy,
 territory, dashboard, exports, PUT sr/zone, check-all, images) is clipped to those wings; asking for another wing, division or territory is 403
 (images 404).
 Only data of territories whose TerritoryReport is `submitted` counts as uploaded/visible (that is the "reflect to the mother portal" rule).
